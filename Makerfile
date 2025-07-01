@@ -1,0 +1,184 @@
+# Makefile for Room Reservation API
+
+# Variables
+APP_NAME := room-reservation-api
+DOCKER_COMPOSE := docker-compose
+GO_CMD := go
+MAIN_PATH := cmd/server/main.go
+
+# Colors for output
+RED := \033[0;31m
+GREEN := \033[0;32m
+YELLOW := \033[0;33m
+BLUE := \033[0;34m
+NC := \033[0m # No Color
+
+.PHONY: help build run test clean docker-up docker-down install-deps migrate seed lint format
+
+# Default target
+help: ## Show this help message
+	@echo "$(BLUE)Room Reservation API - Development Commands$(NC)"
+	@echo ""
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "$(GREEN)%-20s$(NC) %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+# Development
+install-deps: ## Install Go dependencies
+	@echo "$(YELLOW)Installing Go dependencies...$(NC)"
+	$(GO_CMD) mod download
+	$(GO_CMD) mod tidy
+
+build: ## Build the application
+	@echo "$(YELLOW)Building application...$(NC)"
+	$(GO_CMD) build -o bin/$(APP_NAME) $(MAIN_PATH)
+
+run: ## Run the application locally
+	@echo "$(YELLOW)Starting application...$(NC)"
+	$(GO_CMD) run $(MAIN_PATH)
+
+run-dev: ## Run with hot reload (requires air)
+	@echo "$(YELLOW)Starting with hot reload...$(NC)"
+	air
+
+test: ## Run all tests
+	@echo "$(YELLOW)Running tests...$(NC)"
+	$(GO_CMD) test -v ./...
+
+test-coverage: ## Run tests with coverage
+	@echo "$(YELLOW)Running tests with coverage...$(NC)"
+	$(GO_CMD) test -v -coverprofile=coverage.out ./...
+	$(GO_CMD) tool cover -html=coverage.out -o coverage.html
+
+benchmark: ## Run benchmarks
+	@echo "$(YELLOW)Running benchmarks...$(NC)"
+	$(GO_CMD) test -bench=. -benchmem ./...
+
+# Code Quality
+lint: ## Run linters
+	@echo "$(YELLOW)Running linters...$(NC)"
+	golangci-lint run
+
+format: ## Format code
+	@echo "$(YELLOW)Formatting code...$(NC)"
+	$(GO_CMD) fmt ./...
+	goimports -w .
+
+vet: ## Run go vet
+	@echo "$(YELLOW)Running go vet...$(NC)"
+	$(GO_CMD) vet ./...
+
+# Database
+migrate: ## Run database migrations
+	@echo "$(YELLOW)Running database migrations...$(NC)"
+	$(GO_CMD) run scripts/migrate.go
+
+migrate-down: ## Rollback database migrations
+	@echo "$(YELLOW)Rolling back database migrations...$(NC)"
+	$(GO_CMD) run scripts/migrate.go -down
+
+seed: ## Seed database with sample data
+	@echo "$(YELLOW)Seeding database...$(NC)"
+	$(GO_CMD) run scripts/seed.go
+
+reset-db: ## Reset database (migrate down + up + seed)
+	@echo "$(YELLOW)Resetting database...$(NC)"
+	make migrate-down
+	make migrate
+	make seed
+
+# Docker
+docker-build: ## Build Docker image
+	@echo "$(YELLOW)Building Docker image...$(NC)"
+	docker build -t $(APP_NAME):latest .
+
+docker-up: ## Start all services with Docker Compose
+	@echo "$(YELLOW)Starting services with Docker Compose...$(NC)"
+	$(DOCKER_COMPOSE) up -d
+
+docker-down: ## Stop all services
+	@echo "$(YELLOW)Stopping services...$(NC)"
+	$(DOCKER_COMPOSE) down
+
+docker-logs: ## Show logs from all services
+	@echo "$(YELLOW)Showing logs...$(NC)"
+	$(DOCKER_COMPOSE) logs -f
+
+docker-restart: ## Restart all services
+	@echo "$(YELLOW)Restarting services...$(NC)"
+	$(DOCKER_COMPOSE) restart
+
+docker-clean: ## Clean up Docker resources
+	@echo "$(YELLOW)Cleaning up Docker resources...$(NC)"
+	$(DOCKER_COMPOSE) down -v --remove-orphans
+	docker system prune -f
+
+# Database with Docker
+db-up: ## Start only database services
+	@echo "$(YELLOW)Starting database services...$(NC)"
+	$(DOCKER_COMPOSE) up -d postgres redis
+
+db-shell: ## Connect to PostgreSQL shell
+	@echo "$(YELLOW)Connecting to database...$(NC)"
+	$(DOCKER_COMPOSE) exec postgres psql -U admin -d room_reservation
+
+redis-cli: ## Connect to Redis CLI
+	@echo "$(YELLOW)Connecting to Redis...$(NC)"
+	$(DOCKER_COMPOSE) exec redis redis-cli
+
+# Development Tools
+install-tools: ## Install development tools
+	@echo "$(YELLOW)Installing development tools...$(NC)"
+	go install github.com/cosmtrek/air@latest
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install golang.org/x/tools/cmd/goimports@latest
+	go install github.com/swaggo/swag/cmd/swag@latest
+
+swagger: ## Generate Swagger documentation
+	@echo "$(YELLOW)Generating Swagger docs...$(NC)"
+	swag init -g $(MAIN_PATH) -o ./docs
+
+# Production
+build-prod: ## Build for production
+	@echo "$(YELLOW)Building for production...$(NC)"
+	CGO_ENABLED=0 GOOS=linux $(GO_CMD) build -a -installsuffix cgo -ldflags '-extldflags "-static"' -o bin/$(APP_NAME) $(MAIN_PATH)
+
+deploy: ## Deploy to production (customize as needed)
+	@echo "$(YELLOW)Deploying to production...$(NC)"
+	@echo "$(RED)Implement your deployment strategy here$(NC)"
+
+# Cleanup
+clean: ## Clean build artifacts
+	@echo "$(YELLOW)Cleaning up...$(NC)"
+	rm -rf bin/
+	rm -f coverage.out coverage.html
+	$(GO_CMD) clean
+
+# Security
+security-scan: ## Run security scan
+	@echo "$(YELLOW)Running security scan...$(NC)"
+	gosec ./...
+
+# Performance
+profile: ## Run performance profiling
+	@echo "$(YELLOW)Running performance profiling...$(NC)"
+	$(GO_CMD) run $(MAIN_PATH) -cpuprofile=cpu.prof -memprofile=mem.prof
+
+# Complete setup for new developers
+setup: install-deps install-tools docker-up migrate seed ## Complete setup for new developers
+	@echo "$(GREEN)Setup complete! You can now run 'make run' to start the application.$(NC)"
+
+# Health checks
+health: ## Check if services are healthy
+	@echo "$(YELLOW)Checking service health...$(NC)"
+	@curl -f http://localhost:8080/health || echo "$(RED)API service is down$(NC)"
+	@$(DOCKER_COMPOSE) exec postgres pg_isready -U admin -d room_reservation || echo "$(RED)Database is down$(NC)"
+	@$(DOCKER_COMPOSE) exec redis redis-cli ping || echo "$(RED)Redis is down$(NC)"
+
+# Logs
+logs-api: ## Show API logs
+	$(DOCKER_COMPOSE) logs -f api
+
+logs-db: ## Show database logs
+	$(DOCKER_COMPOSE) logs -f postgres
+
+logs-redis: ## Show Redis logs
+	$(DOCKER_COMPOSE) logs -f redis
