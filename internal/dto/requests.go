@@ -250,3 +250,276 @@ func (r *SpaceFiltersRequest) Validate() error {
 
 	return nil
 }
+
+/*
+
+RESERVATION REQUESTS
+
+*/
+
+// CreateReservationRequest represents the request body for creating a new reservation
+type CreateReservationRequest struct {
+	SpaceID           uuid.UUID          `json:"space_id" binding:"required"`
+	StartTime         time.Time          `json:"start_time" binding:"required"`
+	EndTime           time.Time          `json:"end_time" binding:"required"`
+	ParticipantCount  int                `json:"participant_count" binding:"required,min=1"`
+	Title             string             `json:"title" binding:"required,min=2,max=200"`
+	Description       string             `json:"description,omitempty"`
+	IsRecurring       bool               `json:"is_recurring"`
+	RecurrencePattern *RecurrencePattern `json:"recurrence_pattern,omitempty"`
+}
+
+// UpdateReservationRequest represents the request body for updating a reservation
+type UpdateReservationRequest struct {
+	StartTime        *time.Time `json:"start_time,omitempty"`
+	EndTime          *time.Time `json:"end_time,omitempty"`
+	ParticipantCount *int       `json:"participant_count,omitempty" binding:"omitempty,min=1"`
+	Title            *string    `json:"title,omitempty" binding:"omitempty,min=2,max=200"`
+	Description      *string    `json:"description,omitempty"`
+}
+
+// RecurrencePattern represents recurrence configuration
+type RecurrencePattern struct {
+	Type           string     `json:"type" binding:"required,oneof=daily weekly monthly"`
+	Interval       int        `json:"interval" binding:"required,min=1,max=365"`
+	DaysOfWeek     []int      `json:"days_of_week,omitempty" binding:"omitempty,dive,min=0,max=6"`
+	EndDate        *time.Time `json:"end_date,omitempty"`
+	MaxOccurrences *int       `json:"max_occurrences,omitempty" binding:"omitempty,min=1,max=100"`
+}
+
+// ReservationSearchRequest represents the request for searching reservations
+type ReservationSearchRequest struct {
+	Query            string     `json:"query,omitempty" form:"query"`
+	SpaceIDs         []string   `json:"space_ids,omitempty" form:"space_ids"`
+	UserIDs          []string   `json:"user_ids,omitempty" form:"user_ids"`
+	Statuses         []string   `json:"statuses,omitempty" form:"statuses"`
+	StartDate        *time.Time `json:"start_date,omitempty" form:"start_date"`
+	EndDate          *time.Time `json:"end_date,omitempty" form:"end_date"`
+	MinParticipants  *int       `json:"min_participants,omitempty" form:"min_participants" binding:"omitempty,min=1"`
+	MaxParticipants  *int       `json:"max_participants,omitempty" form:"max_participants" binding:"omitempty,min=1"`
+	IsRecurring      *bool      `json:"is_recurring,omitempty" form:"is_recurring"`
+	RequiresApproval *bool      `json:"requires_approval,omitempty" form:"requires_approval"`
+	IncludeCheckedIn *bool      `json:"include_checked_in,omitempty" form:"include_checked_in"`
+	IncludeNoShows   *bool      `json:"include_no_shows,omitempty" form:"include_no_shows"`
+	SortBy           string     `json:"sort_by,omitempty" form:"sort_by" binding:"omitempty,oneof=start_time end_time created_at title participant_count"`
+	SortOrder        string     `json:"sort_order,omitempty" form:"sort_order" binding:"omitempty,oneof=asc desc"`
+	Page             int        `json:"page,omitempty" form:"page" binding:"omitempty,min=1"`
+	Limit            int        `json:"limit,omitempty" form:"limit" binding:"omitempty,min=1,max=100"`
+}
+
+// ApprovalRequest represents a request to approve or reject a reservation
+type ApprovalRequest struct {
+	Action   string `json:"action" binding:"required,oneof=approve reject"`
+	Comments string `json:"comments,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// BulkApprovalRequest represents a bulk approval/rejection request
+type BulkApprovalRequest struct {
+	ReservationIDs []uuid.UUID `json:"reservation_ids" binding:"required,min=1"`
+	Action         string      `json:"action" binding:"required,oneof=approve reject"`
+	Comments       string      `json:"comments,omitempty"`
+	Reason         string      `json:"reason,omitempty"`
+}
+
+// CancelReservationRequest represents a cancellation request
+type CancelReservationRequest struct {
+	Reason          string `json:"reason,omitempty"`
+	CancelFuture    bool   `json:"cancel_future,omitempty"`    // For recurring reservations
+	CancelRemaining bool   `json:"cancel_remaining,omitempty"` // Cancel all remaining in series
+}
+
+// CheckInRequest represents a check-in request
+type CheckInRequest struct {
+	CheckInTime *time.Time `json:"check_in_time,omitempty"`
+	Notes       string     `json:"notes,omitempty"`
+}
+
+// CheckOutRequest represents a check-out request
+type CheckOutRequest struct {
+	CheckOutTime *time.Time `json:"check_out_time,omitempty"`
+	Notes        string     `json:"notes,omitempty"`
+	Rating       *int       `json:"rating,omitempty" binding:"omitempty,min=1,max=5"`
+	Feedback     string     `json:"feedback,omitempty"`
+}
+
+// NoShowRequest represents a no-show report request
+type NoShowRequest struct {
+	Reason       string     `json:"reason" binding:"required"`
+	ReportedBy   string     `json:"reported_by,omitempty"`
+	ReportedTime *time.Time `json:"reported_time,omitempty"`
+}
+
+// ExtendReservationRequest represents a request to extend a reservation
+type ExtendReservationRequest struct {
+	NewEndTime time.Time `json:"new_end_time" binding:"required"`
+	Reason     string    `json:"reason,omitempty"`
+}
+
+// RecurringUpdateRequest represents updates to recurring reservations
+type RecurringUpdateRequest struct {
+	UpdateScope string                   `json:"update_scope" binding:"required,oneof=this_only future_only all"`
+	Updates     UpdateReservationRequest `json:"updates"`
+}
+
+// AvailabilityCheckRequest represents a request to check availability
+type AvailabilityCheckRequest struct {
+	SpaceID              uuid.UUID  `json:"space_id" binding:"required"`
+	StartTime            time.Time  `json:"start_time" binding:"required"`
+	EndTime              time.Time  `json:"end_time" binding:"required"`
+	ExcludeReservationID *uuid.UUID `json:"exclude_reservation_id,omitempty"`
+	CheckCapacity        bool       `json:"check_capacity,omitempty"`
+	RequiredParticipants *int       `json:"required_participants,omitempty"`
+}
+
+// BulkReservationRequest represents a request to create multiple reservations
+type BulkReservationRequest struct {
+	Reservations []CreateReservationRequest `json:"reservations" binding:"required,min=1,dive"`
+	FailOnError  bool                       `json:"fail_on_error,omitempty"`
+}
+
+// ReservationStatsRequest represents a request for reservation statistics
+type ReservationStatsRequest struct {
+	StartDate      *time.Time  `json:"start_date,omitempty" form:"start_date"`
+	EndDate        *time.Time  `json:"end_date,omitempty" form:"end_date"`
+	Period         string      `json:"period,omitempty" form:"period" binding:"omitempty,oneof=day week month year"`
+	UserID         *uuid.UUID  `json:"user_id,omitempty" form:"user_id"`
+	SpaceID        *uuid.UUID  `json:"space_id,omitempty" form:"space_id"`
+	SpaceIDs       []uuid.UUID `json:"space_ids,omitempty" form:"space_ids"`
+	GroupBy        string      `json:"group_by,omitempty" form:"group_by" binding:"omitempty,oneof=user space date hour day_of_week"`
+	IncludeNoShows bool        `json:"include_no_shows,omitempty" form:"include_no_shows"`
+}
+
+// SetDefaults sets default values for search request
+func (r *ReservationSearchRequest) SetDefaults() {
+	if r.Page == 0 {
+		r.Page = 1
+	}
+	if r.Limit == 0 {
+		r.Limit = 20
+	}
+	if r.SortBy == "" {
+		r.SortBy = "start_time"
+	}
+	if r.SortOrder == "" {
+		r.SortOrder = "asc"
+	}
+}
+
+// GetOffset calculates the offset for pagination
+func (r *ReservationSearchRequest) GetOffset() int {
+	return (r.Page - 1) * r.Limit
+}
+
+// Validate validates the create reservation request
+func (r *CreateReservationRequest) Validate() error {
+	if r.StartTime.After(r.EndTime) {
+		return errors.New("start time must be before end time")
+	}
+
+	if r.StartTime.Before(time.Now()) {
+		return errors.New("start time must be in the future")
+	}
+
+	// Check minimum duration (15 minutes)
+	if r.EndTime.Sub(r.StartTime) < 15*time.Minute {
+		return errors.New("reservation must be at least 15 minutes long")
+	}
+
+	// Check maximum duration (12 hours)
+	if r.EndTime.Sub(r.StartTime) > 12*time.Hour {
+		return errors.New("reservation cannot exceed 12 hours")
+	}
+
+	// Validate recurrence pattern if recurring
+	if r.IsRecurring {
+		if r.RecurrencePattern == nil {
+			return errors.New("recurrence pattern is required for recurring reservations")
+		}
+
+		if err := r.RecurrencePattern.Validate(); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Validate validates the update reservation request
+func (r *UpdateReservationRequest) Validate() error {
+	if r.StartTime != nil && r.EndTime != nil {
+		if r.StartTime.After(*r.EndTime) {
+			return errors.New("start time must be before end time")
+		}
+
+		// Check minimum duration
+		if r.EndTime.Sub(*r.StartTime) < 15*time.Minute {
+			return errors.New("reservation must be at least 15 minutes long")
+		}
+
+		// Check maximum duration
+		if r.EndTime.Sub(*r.StartTime) > 12*time.Hour {
+			return errors.New("reservation cannot exceed 12 hours")
+		}
+	}
+
+	return nil
+}
+
+// Validate validates the recurrence pattern
+func (r *RecurrencePattern) Validate() error {
+	if r.Type == "weekly" && len(r.DaysOfWeek) == 0 {
+		return errors.New("days of week must be specified for weekly recurrence")
+	}
+
+	if r.EndDate != nil && r.MaxOccurrences != nil {
+		return errors.New("cannot specify both end date and max occurrences")
+	}
+
+	if r.EndDate == nil && r.MaxOccurrences == nil {
+		return errors.New("must specify either end date or max occurrences for recurrence")
+	}
+
+	if r.EndDate != nil && r.EndDate.Before(time.Now()) {
+		return errors.New("recurrence end date must be in the future")
+	}
+
+	// Validate days of week
+	for _, day := range r.DaysOfWeek {
+		if day < 0 || day > 6 {
+			return errors.New("days of week must be between 0 (Sunday) and 6 (Saturday)")
+		}
+	}
+
+	return nil
+}
+
+// Validate validates the search request
+func (r *ReservationSearchRequest) Validate() error {
+	if r.MinParticipants != nil && r.MaxParticipants != nil && *r.MinParticipants > *r.MaxParticipants {
+		return errors.New("min participants must be less than or equal to max participants")
+	}
+
+	if r.StartDate != nil && r.EndDate != nil && r.StartDate.After(*r.EndDate) {
+		return errors.New("start date must be before end date")
+	}
+
+	return nil
+}
+
+// Validate validates the availability check request
+func (r *AvailabilityCheckRequest) Validate() error {
+	if r.StartTime.After(r.EndTime) {
+		return errors.New("start time must be before end time")
+	}
+
+	if r.StartTime.Before(time.Now()) {
+		return errors.New("start time must be in the future")
+	}
+
+	if r.EndTime.Sub(r.StartTime) < 15*time.Minute {
+		return errors.New("time slot must be at least 15 minutes long")
+	}
+
+	return nil
+}

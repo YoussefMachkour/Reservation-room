@@ -1,4 +1,3 @@
-// internal/services/space_service.go
 package services
 
 import (
@@ -15,40 +14,140 @@ import (
 	"room-reservation-api/internal/repositories/interfaces"
 )
 
+// SpaceService handles all space business logic
 type SpaceService struct {
 	spaceRepo       interfaces.SpaceRepositoryInterface
-	userRepo        interfaces.UserRepositoryInterface
 	reservationRepo interfaces.ReservationRepositoryInterface
+	userRepo        interfaces.UserRepositoryInterface
 }
 
 // NewSpaceService creates a new space service
 func NewSpaceService(
 	spaceRepo interfaces.SpaceRepositoryInterface,
-	userRepo interfaces.UserRepositoryInterface,
 	reservationRepo interfaces.ReservationRepositoryInterface,
+	userRepo interfaces.UserRepositoryInterface,
 ) *SpaceService {
 	return &SpaceService{
 		spaceRepo:       spaceRepo,
-		userRepo:        userRepo,
 		reservationRepo: reservationRepo,
+		userRepo:        userRepo,
 	}
 }
 
-// GetSpaces retrieves spaces with filtering and pagination
-func (s *SpaceService) GetSpaces(req *dto.SpaceFiltersRequest) ([]*models.Space, int64, error) {
-	// Build filters
-	filters := s.buildSpaceFilters(req)
+// ========================================
+// BASIC CRUD OPERATIONS
+// ========================================
 
-	// Get spaces from repository
-	spaces, total, err := s.spaceRepo.GetSpacesWithFilters(filters, req.GetOffset(), req.Limit)
+// CreateSpace creates a new space
+func (s *SpaceService) CreateSpace(req *dto.CreateSpaceRequest, userID uuid.UUID) (*models.Space, error) {
+	// Check if user has permission to create spaces
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get spaces: %w", err)
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	return spaces, total, nil
+	if !user.IsAdmin() && !user.IsManager() {
+		return nil, errors.New("only admins and managers can create spaces")
+	}
+
+	// Validate business rules
+	if req.Name == "" {
+		return nil, errors.New("space name is required")
+	}
+	if req.Building == "" {
+		return nil, errors.New("building is required")
+	}
+	if req.Capacity <= 0 {
+		return nil, errors.New("capacity must be greater than 0")
+	}
+
+	// Check if space name already exists in the same building
+	exists, err := s.spaceRepo.ExistsByNameAndBuilding(req.Name, req.Building)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check space existence: %w", err)
+	}
+	if exists {
+		return nil, errors.New("space with this name already exists in the building")
+	}
+
+	// Validate manager if provided
+	var managerID *uuid.UUID
+	if req.ManagerID != nil {
+		manager, err := s.userRepo.GetByID(*req.ManagerID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get manager: %w", err)
+		}
+		if !manager.IsManager() && !manager.IsAdmin() {
+			return nil, errors.New("assigned manager must have manager or admin role")
+		}
+		managerID = req.ManagerID
+	}
+
+	// Handle equipment JSON
+	var equipmentJSON datatypes.JSON
+	if len(req.Equipment) > 0 {
+		equipmentBytes, err := json.Marshal(req.Equipment)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize equipment: %w", err)
+		}
+		equipmentJSON = datatypes.JSON(equipmentBytes)
+	}
+
+	// Handle photos JSON
+	var photosJSON datatypes.JSON
+	if len(req.Photos) > 0 {
+		photosBytes, err := json.Marshal(req.Photos)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize photos: %w", err)
+		}
+		photosJSON = datatypes.JSON(photosBytes)
+	}
+
+	// Set default status if not provided
+	status := "available"
+
+	// Set default values for booking settings
+	bookingAdvanceTime := req.BookingAdvanceTime
+	if bookingAdvanceTime == 0 {
+		bookingAdvanceTime = 30 // 30 minutes default
+	}
+
+	maxBookingDuration := req.MaxBookingDuration
+	if maxBookingDuration == 0 {
+		maxBookingDuration = 480 // 8 hours default
+	}
+
+	// Create space
+	space := &models.Space{
+		Name:               req.Name,
+		Type:               models.SpaceType(req.Type),
+		Capacity:           req.Capacity,
+		Building:           req.Building,
+		Floor:              req.Floor,
+		RoomNumber:         req.RoomNumber,
+		Equipment:          equipmentJSON,
+		Status:             models.SpaceStatus(status),
+		Description:        req.Description,
+		Surface:            req.Surface,
+		Photos:             photosJSON,
+		PricePerHour:       req.PricePerHour,
+		PricePerDay:        req.PricePerDay,
+		PricePerMonth:      req.PricePerMonth,
+		ManagerID:          managerID,
+		RequiresApproval:   req.RequiresApproval,
+		BookingAdvanceTime: bookingAdvanceTime,
+		MaxBookingDuration: maxBookingDuration,
+	}
+
+	createdSpace, err := s.spaceRepo.Create(space)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create space: %w", err)
+	}
+
+	return createdSpace, nil
 }
 
-// GetSpaceByID retrieves a space by its ID
+// GetSpaceByID retrieves a space by ID
 func (s *SpaceService) GetSpaceByID(spaceID uuid.UUID) (*models.Space, error) {
 	space, err := s.spaceRepo.GetByID(spaceID)
 	if err != nil {
@@ -58,210 +157,78 @@ func (s *SpaceService) GetSpaceByID(spaceID uuid.UUID) (*models.Space, error) {
 	return space, nil
 }
 
-// SearchSpaces searches for spaces with query and filters
-func (s *SpaceService) SearchSpaces(req *dto.SpaceSearchRequest) ([]*models.Space, int64, error) {
-	// Convert search request to filters request
-	filters := &dto.SpaceFiltersRequest{
-		Types:       req.Types,
-		Buildings:   req.Buildings,
-		Floors:      req.Floors,
-		MinCapacity: req.MinCapacity,
-		MaxCapacity: req.MaxCapacity,
-		Status:      req.Status,
-		SortBy:      req.SortBy,
-		SortOrder:   req.SortOrder,
-		Page:        req.Page,
-		Limit:       req.Limit,
-	}
-
-	// Build search filters
-	searchFilters := s.buildSpaceFilters(filters)
-
-	// Add search query if provided
-	if req.Query != "" {
-		searchFilters["search_query"] = req.Query
-	}
-
-	// Get spaces from repository
-	spaces, total, err := s.spaceRepo.SearchSpaces(searchFilters, req.GetOffset(), req.Limit)
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to search spaces: %w", err)
-	}
-
-	return spaces, total, nil
-}
-
-// CreateSpace creates a new space
-func (s *SpaceService) CreateSpace(req *dto.CreateSpaceRequest, userID uuid.UUID) (*models.Space, error) {
-	// Validate user permissions
-	user, err := s.userRepo.GetByID(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-
-	if !s.canManageSpaces(user) {
-		return nil, errors.New("insufficient permissions to create spaces")
-	}
-
-	// Check if space with same name exists in building
-	exists, err := s.spaceRepo.ExistsByNameAndBuilding(req.Name, req.Building)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check space existence: %w", err)
-	}
-	if exists {
-		return nil, errors.New("space with same name already exists in this building")
-	}
-
-	// Validate manager if provided
-	if req.ManagerID != nil {
-		manager, err := s.userRepo.GetByID(*req.ManagerID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid manager ID: %w", err)
-		}
-		if !s.canBeSpaceManager(manager) {
-			return nil, errors.New("specified user cannot be a space manager")
-		}
-	}
-
-	// Convert equipment to JSON
-	equipmentJSON, err := s.convertEquipmentToJSON(req.Equipment)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process equipment: %w", err)
-	}
-
-	// Convert photos to JSON
-	photosJSON, err := s.convertPhotosToJSON(req.Photos)
-	if err != nil {
-		return nil, fmt.Errorf("failed to process photos: %w", err)
-	}
-
-	// Create space model
-	space := &models.Space{
-		Name:               req.Name,
-		Type:               models.SpaceType(req.Type),
-		Capacity:           req.Capacity,
-		Building:           req.Building,
-		Floor:              req.Floor,
-		RoomNumber:         req.RoomNumber,
-		Equipment:          equipmentJSON,
-		Status:             models.SpaceStatusAvailable,
-		Description:        req.Description,
-		Surface:            req.Surface,
-		Photos:             photosJSON,
-		PricePerHour:       req.PricePerHour,
-		PricePerDay:        req.PricePerDay,
-		PricePerMonth:      req.PricePerMonth,
-		ManagerID:          req.ManagerID,
-		RequiresApproval:   req.RequiresApproval,
-		BookingAdvanceTime: req.BookingAdvanceTime,
-		MaxBookingDuration: req.MaxBookingDuration,
-	}
-
-	// Set defaults
-	if space.BookingAdvanceTime == 0 {
-		space.BookingAdvanceTime = 30 // 30 minutes default
-	}
-	if space.MaxBookingDuration == 0 {
-		space.MaxBookingDuration = 480 // 8 hours default
-	}
-
-	// Create space in repository
-	createdSpace, err := s.spaceRepo.Create(space)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create space: %w", err)
-	}
-
-	return createdSpace, nil
-}
-
 // UpdateSpace updates an existing space
 func (s *SpaceService) UpdateSpace(spaceID uuid.UUID, req *dto.UpdateSpaceRequest, userID uuid.UUID) (*models.Space, error) {
-	// Validate user permissions
-	user, err := s.userRepo.GetByID(userID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
-	}
-
-	if !s.canManageSpaces(user) {
-		return nil, errors.New("insufficient permissions to update spaces")
-	}
-
 	// Get existing space
 	space, err := s.spaceRepo.GetByID(spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get space: %w", err)
 	}
 
-	// Check if name change conflicts with existing space
-	if req.Name != nil && *req.Name != space.Name {
-		building := space.Building
-		if req.Building != nil {
-			building = *req.Building
-		}
-
-		exists, err := s.spaceRepo.ExistsByNameAndBuildingExcluding(*req.Name, building, spaceID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check space existence: %w", err)
-		}
-		if exists {
-			return nil, errors.New("space with same name already exists in this building")
-		}
+	// Check permissions
+	if !s.canUserModifySpace(space, userID) {
+		return nil, errors.New("access denied")
 	}
 
-	// Validate manager if being changed
-	if req.ManagerID != nil {
-		manager, err := s.userRepo.GetByID(*req.ManagerID)
-		if err != nil {
-			return nil, fmt.Errorf("invalid manager ID: %w", err)
-		}
-		if !s.canBeSpaceManager(manager) {
-			return nil, errors.New("specified user cannot be a space manager")
-		}
-	}
-
-	// Update space fields
+	// Build updates map
 	updates := make(map[string]interface{})
 
 	if req.Name != nil {
+		// Validate name is not empty
+		if *req.Name == "" {
+			return nil, errors.New("space name cannot be empty")
+		}
+
+		// Check if new name conflicts with existing space
+		if *req.Name != space.Name {
+			building := space.Building
+			if req.Building != nil {
+				building = *req.Building
+			}
+
+			exists, err := s.spaceRepo.ExistsByNameAndBuildingExcluding(*req.Name, building, spaceID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to check space existence: %w", err)
+			}
+			if exists {
+				return nil, errors.New("space with this name already exists in the building")
+			}
+		}
 		updates["name"] = *req.Name
 	}
+
 	if req.Type != nil {
-		updates["type"] = models.SpaceType(*req.Type)
+		updates["type"] = *req.Type
 	}
 	if req.Capacity != nil {
+		if *req.Capacity <= 0 {
+			return nil, errors.New("capacity must be greater than 0")
+		}
 		updates["capacity"] = *req.Capacity
 	}
 	if req.Building != nil {
+		if *req.Building == "" {
+			return nil, errors.New("building cannot be empty")
+		}
 		updates["building"] = *req.Building
 	}
 	if req.Floor != nil {
 		updates["floor"] = *req.Floor
 	}
 	if req.RoomNumber != nil {
+		if *req.RoomNumber == "" {
+			return nil, errors.New("room number cannot be empty")
+		}
 		updates["room_number"] = *req.RoomNumber
 	}
-	if req.Equipment != nil {
-		equipmentJSON, err := s.convertEquipmentToJSON(req.Equipment)
-		if err != nil {
-			return nil, fmt.Errorf("failed to process equipment: %w", err)
-		}
-		updates["equipment"] = equipmentJSON
-	}
 	if req.Status != nil {
-		updates["status"] = models.SpaceStatus(*req.Status)
+		updates["status"] = *req.Status
 	}
 	if req.Description != nil {
 		updates["description"] = *req.Description
 	}
 	if req.Surface != nil {
 		updates["surface"] = *req.Surface
-	}
-	if req.Photos != nil {
-		photosJSON, err := s.convertPhotosToJSON(req.Photos)
-		if err != nil {
-			return nil, fmt.Errorf("failed to process photos: %w", err)
-		}
-		updates["photos"] = photosJSON
 	}
 	if req.PricePerHour != nil {
 		updates["price_per_hour"] = *req.PricePerHour
@@ -272,9 +239,6 @@ func (s *SpaceService) UpdateSpace(spaceID uuid.UUID, req *dto.UpdateSpaceReques
 	if req.PricePerMonth != nil {
 		updates["price_per_month"] = *req.PricePerMonth
 	}
-	if req.ManagerID != nil {
-		updates["manager_id"] = *req.ManagerID
-	}
 	if req.RequiresApproval != nil {
 		updates["requires_approval"] = *req.RequiresApproval
 	}
@@ -282,10 +246,52 @@ func (s *SpaceService) UpdateSpace(spaceID uuid.UUID, req *dto.UpdateSpaceReques
 		updates["booking_advance_time"] = *req.BookingAdvanceTime
 	}
 	if req.MaxBookingDuration != nil {
+		if *req.MaxBookingDuration < 30 {
+			return nil, errors.New("maximum booking duration must be at least 30 minutes")
+		}
 		updates["max_booking_duration"] = *req.MaxBookingDuration
 	}
 
-	// Update space in repository
+	// Handle manager assignment
+	if req.ManagerID != nil {
+		if *req.ManagerID != uuid.Nil {
+			manager, err := s.userRepo.GetByID(*req.ManagerID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get manager: %w", err)
+			}
+			if !manager.IsManager() && !manager.IsAdmin() {
+				return nil, errors.New("assigned manager must have manager or admin role")
+			}
+		}
+		updates["manager_id"] = req.ManagerID
+	}
+
+	// Handle equipment updates
+	if req.Equipment != nil {
+		if len(req.Equipment) > 0 {
+			equipmentBytes, err := json.Marshal(req.Equipment)
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize equipment: %w", err)
+			}
+			updates["equipment"] = datatypes.JSON(equipmentBytes)
+		} else {
+			updates["equipment"] = nil
+		}
+	}
+
+	// Handle photos updates
+	if req.Photos != nil {
+		if len(req.Photos) > 0 {
+			photosBytes, err := json.Marshal(req.Photos)
+			if err != nil {
+				return nil, fmt.Errorf("failed to serialize photos: %w", err)
+			}
+			updates["photos"] = datatypes.JSON(photosBytes)
+		} else {
+			updates["photos"] = nil
+		}
+	}
+
 	updatedSpace, err := s.spaceRepo.Update(spaceID, updates)
 	if err != nil {
 		return nil, fmt.Errorf("failed to update space: %w", err)
@@ -295,27 +301,39 @@ func (s *SpaceService) UpdateSpace(spaceID uuid.UUID, req *dto.UpdateSpaceReques
 }
 
 // DeleteSpace soft deletes a space
-func (s *SpaceService) DeleteSpace(spaceID uuid.UUID, userID uuid.UUID) error {
-	// Validate user permissions
+func (s *SpaceService) DeleteSpace(spaceID, userID uuid.UUID) error {
+	// Get the space
+	_, err := s.spaceRepo.GetByID(spaceID)
+	if err != nil {
+		return fmt.Errorf("failed to get space: %w", err)
+	}
+
+	// Check permissions (only admins can delete spaces)
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
-	if !s.canManageSpaces(user) {
-		return errors.New("insufficient permissions to delete spaces")
+	if !user.IsAdmin() {
+		return errors.New("only administrators can delete spaces")
 	}
 
-	// Check if space has active reservations
-	hasActiveReservations, err := s.reservationRepo.HasActiveReservationsForSpace(spaceID)
+	// Check if space has active reservations (using method from reservation repo interface)
+	hasActive, err := s.reservationRepo.HasActiveReservationsForSpace(spaceID)
 	if err != nil {
-		return fmt.Errorf("failed to check active reservations: %w", err)
+		// If method doesn't exist, try alternative approach
+		conflicts, conflictErr := s.reservationRepo.GetConflictingReservations(spaceID, time.Now(), time.Now().Add(24*time.Hour))
+		if conflictErr != nil {
+			return fmt.Errorf("failed to check active reservations: %w", err)
+		}
+		hasActive = len(conflicts) > 0
 	}
-	if hasActiveReservations {
+
+	if hasActive {
 		return errors.New("cannot delete space with active reservations")
 	}
 
-	// Delete space
+	// Delete the space
 	err = s.spaceRepo.Delete(spaceID)
 	if err != nil {
 		return fmt.Errorf("failed to delete space: %w", err)
@@ -324,178 +342,313 @@ func (s *SpaceService) DeleteSpace(spaceID uuid.UUID, userID uuid.UUID) error {
 	return nil
 }
 
-// CheckAvailability checks if a space is available for a given time slot
-func (s *SpaceService) CheckAvailability(req *dto.SpaceAvailabilityRequest) (*dto.SpaceAvailabilityResponse, error) {
-	// Get space
-	space, err := s.spaceRepo.GetByID(req.SpaceID)
+// ========================================
+// LISTING AND SEARCH OPERATIONS
+// ========================================
+
+// GetAllSpaces retrieves all spaces with pagination
+func (s *SpaceService) GetAllSpaces(offset, limit int) ([]*models.Space, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.GetAll(offset, limit)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get space: %w", err)
+		return nil, 0, fmt.Errorf("failed to get spaces: %w", err)
 	}
 
-	// Check if space is generally available
-	if !space.IsAvailable() {
-		return &dto.SpaceAvailabilityResponse{
-			SpaceID:       req.SpaceID,
-			SpaceName:     space.Name,
-			IsAvailable:   false,
-			RequestedSlot: dto.TimeSlot{StartTime: req.StartTime, EndTime: req.EndTime},
-			Conflicts:     []dto.ReservationConflict{},
-		}, nil
-	}
-
-	// Check for reservation conflicts
-	conflicts, err := s.reservationRepo.GetConflictingReservations(req.SpaceID, req.StartTime, req.EndTime)
-	if err != nil {
-		return nil, fmt.Errorf("failed to check conflicts: %w", err)
-	}
-
-	// Convert conflicts to DTO
-	conflictDTOs := make([]dto.ReservationConflict, len(conflicts))
-	for i, conflict := range conflicts {
-		conflictDTOs[i] = dto.ReservationConflict{
-			ReservationID: conflict.ID,
-			Title:         conflict.Title,
-			StartTime:     conflict.StartTime,
-			EndTime:       conflict.EndTime,
-			UserName:      s.getUserName(conflict.UserID),
-			Status:        string(conflict.Status),
-		}
-	}
-
-	isAvailable := len(conflicts) == 0
-
-	response := &dto.SpaceAvailabilityResponse{
-		SpaceID:       req.SpaceID,
-		SpaceName:     space.Name,
-		IsAvailable:   isAvailable,
-		RequestedSlot: dto.TimeSlot{StartTime: req.StartTime, EndTime: req.EndTime},
-		Conflicts:     conflictDTOs,
-	}
-
-	// If not available, suggest next available slot
-	if !isAvailable {
-		nextAvailable, err := s.findNextAvailableSlot(req.SpaceID, req.EndTime, req.EndTime.Sub(req.StartTime))
-		if err == nil && nextAvailable != nil {
-			response.NextAvailable = nextAvailable
-		}
-
-		// Add suggestions for alternative time slots
-		suggestions, err := s.findAlternativeSlots(req.SpaceID, req.StartTime, req.EndTime.Sub(req.StartTime))
-		if err == nil {
-			response.Suggestions = suggestions
-		}
-	}
-
-	return response, nil
+	return spaces, total, nil
 }
 
-// BulkUpdateStatus updates the status of multiple spaces
-func (s *SpaceService) BulkUpdateStatus(req *dto.BulkSpaceStatusRequest, userID uuid.UUID) (*dto.BulkOperationResponse, error) {
-	// Validate user permissions
+// SearchSpaces searches spaces with filters
+func (s *SpaceService) SearchSpaces(filters interfaces.SpaceFilters, offset, limit int) ([]*models.Space, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.SearchSpaces(filters, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search spaces: %w", err)
+	}
+
+	return spaces, total, nil
+}
+
+// GetSpacesByBuilding retrieves spaces in a specific building
+func (s *SpaceService) GetSpacesByBuilding(building string, offset, limit int) ([]*models.Space, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.GetSpacesByBuilding(building, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get spaces by building: %w", err)
+	}
+
+	return spaces, total, nil
+}
+
+// GetSpacesByType retrieves spaces of a specific type
+func (s *SpaceService) GetSpacesByType(spaceType string, offset, limit int) ([]*models.Space, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.GetSpacesByType(spaceType, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get spaces by type: %w", err)
+	}
+
+	return spaces, total, nil
+}
+
+// GetSpacesByStatus retrieves spaces with a specific status
+func (s *SpaceService) GetSpacesByStatus(status string, offset, limit int, userID uuid.UUID) ([]*models.Space, int64, error) {
+	// Check permissions - only admins and managers can filter by status
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	if !s.canManageSpaces(user) {
-		return nil, errors.New("insufficient permissions to update spaces")
+	if !user.IsAdmin() && !user.IsManager() {
+		return nil, 0, errors.New("access denied")
 	}
 
-	response := &dto.BulkOperationResponse{
-		Success:      []uuid.UUID{},
-		Failed:       []dto.BulkOperationError{},
-		TotalCount:   len(req.SpaceIDs),
-		SuccessCount: 0,
-		FailedCount:  0,
+	if limit <= 0 {
+		limit = 20
 	}
 
-	for _, spaceID := range req.SpaceIDs {
-		updates := map[string]interface{}{
-			"status": models.SpaceStatus(req.Status),
-		}
+	spaces, total, err := s.spaceRepo.GetSpacesByStatus(status, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get spaces by status: %w", err)
+	}
 
-		_, err := s.spaceRepo.Update(spaceID, updates)
+	return spaces, total, nil
+}
+
+// GetSpacesByCapacityRange retrieves spaces within a capacity range
+func (s *SpaceService) GetSpacesByCapacityRange(minCapacity, maxCapacity int, offset, limit int) ([]*models.Space, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.GetSpacesByCapacityRange(minCapacity, maxCapacity, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get spaces by capacity: %w", err)
+	}
+
+	return spaces, total, nil
+}
+
+// ========================================
+// AVAILABILITY OPERATIONS
+// ========================================
+
+// GetAvailableSpaces retrieves spaces available during a specific time period
+func (s *SpaceService) GetAvailableSpaces(startTime, endTime time.Time, offset, limit int) ([]*models.Space, int64, error) {
+	// Validate time range
+	if startTime.After(endTime) {
+		return nil, 0, errors.New("start time must be before end time")
+	}
+
+	if startTime.Before(time.Now()) {
+		return nil, 0, errors.New("cannot search for availability in the past")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	// Use space repo method if available, otherwise implement logic here
+	spaces, total, err := s.spaceRepo.GetAvailableSpaces(startTime, endTime, offset, limit)
+	if err != nil {
+		// Fallback: get all spaces and filter manually
+		allSpaces, _, err := s.spaceRepo.GetAll(0, 1000) // Get reasonable amount
 		if err != nil {
-			response.Failed = append(response.Failed, dto.BulkOperationError{
-				SpaceID: spaceID,
-				Error:   err.Error(),
-			})
-			response.FailedCount++
-		} else {
-			response.Success = append(response.Success, spaceID)
-			response.SuccessCount++
+			return nil, 0, fmt.Errorf("failed to get spaces: %w", err)
 		}
+
+		var availableSpaces []*models.Space
+		for _, space := range allSpaces {
+			if space.Status == models.SpaceStatusAvailable {
+				available, err := s.reservationRepo.CheckTimeSlotAvailability(space.ID, startTime, endTime, nil)
+				if err == nil && available {
+					availableSpaces = append(availableSpaces, space)
+				}
+			}
+		}
+
+		// Apply pagination manually
+		total = int64(len(availableSpaces))
+		start := offset
+		end := offset + limit
+		if start > len(availableSpaces) {
+			return []*models.Space{}, total, nil
+		}
+		if end > len(availableSpaces) {
+			end = len(availableSpaces)
+		}
+
+		return availableSpaces[start:end], total, nil
 	}
 
-	return response, nil
+	return spaces, total, nil
 }
 
-// GetSpaceOptions returns available options for space creation/editing
-func (s *SpaceService) GetSpaceOptions() (*dto.SpaceOptionsResponse, error) {
-	// Get available buildings
-	buildings, err := s.spaceRepo.GetDistinctBuildings()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get buildings: %w", err)
+// CheckSpaceAvailability checks if a space is available during a time period
+func (s *SpaceService) CheckSpaceAvailability(spaceID uuid.UUID, startTime, endTime time.Time) (*dto.AvailabilityResponse, error) {
+	// Validate time range
+	if startTime.After(endTime) {
+		return nil, errors.New("start time must be before end time")
 	}
 
-	// Get available floors
-	floors, err := s.spaceRepo.GetDistinctFloors()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get floors: %w", err)
-	}
-
-	// Get available equipment options
-	equipment, err := s.spaceRepo.GetDistinctEquipment()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get equipment: %w", err)
-	}
-
-	// Get potential managers (users with admin/manager roles)
-
-	response := &dto.SpaceOptionsResponse{
-		Types: []dto.SpaceTypeOption{
-			{Value: "meeting_room", Label: "Meeting Room", Description: "Standard meeting room for team discussions"},
-			{Value: "office", Label: "Office", Description: "Private office space"},
-			{Value: "auditorium", Label: "Auditorium", Description: "Large presentation space"},
-			{Value: "open_space", Label: "Open Space", Description: "Collaborative open area"},
-			{Value: "hot_desk", Label: "Hot Desk", Description: "Flexible desk space"},
-			{Value: "conference_room", Label: "Conference Room", Description: "Large conference room for formal meetings"},
-		},
-		Buildings: buildings,
-		Floors:    floors,
-		Statuses: []dto.SpaceStatusOption{
-			{Value: "available", Label: "Available", Description: "Space is available for booking"},
-			{Value: "maintenance", Label: "Maintenance", Description: "Space is under maintenance"},
-			{Value: "out_of_service", Label: "Out of Service", Description: "Space is temporarily unavailable"},
-			{Value: "reserved", Label: "Reserved", Description: "Space is reserved"},
-		},
-		Equipment: equipment,
-	}
-
-	return response, nil
-}
-
-// GetSpaceAnalytics returns analytics data for a space
-func (s *SpaceService) GetSpaceAnalytics(spaceID uuid.UUID, period string) (*dto.SpaceAnalyticsResponse, error) {
-	// Get space
+	// Get space info
 	space, err := s.spaceRepo.GetByID(spaceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get space: %w", err)
 	}
 
-	response := &dto.SpaceAnalyticsResponse{
-		SpaceID:   spaceID,
-		SpaceName: space.Name,
-		Period:    period,
-		// Analytics data would be populated from the repository response
-		// This is a placeholder implementation
+	// Check availability using reservation repo (consistent with ReservationService)
+	available, err := s.reservationRepo.CheckTimeSlotAvailability(spaceID, startTime, endTime, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check availability: %w", err)
+	}
+
+	response := &dto.AvailabilityResponse{
+		SpaceID:     spaceID,
+		SpaceName:   space.Name,
+		IsAvailable: available,
+		RequestedSlot: dto.TimeSlot{
+			StartTime: startTime,
+			EndTime:   endTime,
+		},
+	}
+
+	// Get conflicts if not available
+	if !available {
+		conflicts, err := s.reservationRepo.GetConflictingReservations(spaceID, startTime, endTime)
+		if err == nil && len(conflicts) > 0 {
+			for _, conflict := range conflicts {
+				userName := conflict.User.GetFullName()
+				if userName == " " {
+					userName = conflict.User.Email
+				}
+				response.Conflicts = append(response.Conflicts, dto.ReservationConflict{
+					ReservationID: conflict.ID,
+					Title:         conflict.Title,
+					StartTime:     conflict.StartTime,
+					EndTime:       conflict.EndTime,
+					UserName:      userName,
+					Status:        string(conflict.Status),
+				})
+			}
+		}
+
+		// Generate next available slot suggestion
+		nextAvailable := s.findNextAvailableSlot(spaceID, endTime, endTime.Sub(startTime))
+		if nextAvailable != nil {
+			response.NextAvailable = nextAvailable
+		}
 	}
 
 	return response, nil
 }
 
-// GetBuildings returns list of all buildings
-func (s *SpaceService) GetBuildings() ([]string, error) {
+// ========================================
+// MANAGER OPERATIONS
+// ========================================
+
+// GetSpacesByManager retrieves spaces managed by a specific manager
+func (s *SpaceService) GetSpacesByManager(managerID uuid.UUID, offset, limit int, userID uuid.UUID) ([]*models.Space, int64, error) {
+	// Check permissions
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Users can only view their own managed spaces (if they're managers) or admins can view any
+	if !user.IsAdmin() && userID != managerID {
+		return nil, 0, errors.New("access denied")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	spaces, total, err := s.spaceRepo.GetSpacesByManager(managerID, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get spaces by manager: %w", err)
+	}
+
+	return spaces, total, nil
+}
+
+// AssignManager assigns a manager to a space
+func (s *SpaceService) AssignManager(spaceID, managerID, userID uuid.UUID) error {
+	// Check permissions
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if !user.IsAdmin() {
+		return errors.New("only administrators can assign managers")
+	}
+
+	// Validate manager
+	manager, err := s.userRepo.GetByID(managerID)
+	if err != nil {
+		return fmt.Errorf("failed to get manager: %w", err)
+	}
+
+	if !manager.IsManager() && !manager.IsAdmin() {
+		return errors.New("assigned user must have manager or admin role")
+	}
+
+	// Update space
+	updates := map[string]interface{}{
+		"manager_id": managerID,
+	}
+
+	_, err = s.spaceRepo.Update(spaceID, updates)
+	if err != nil {
+		return fmt.Errorf("failed to assign manager: %w", err)
+	}
+
+	return nil
+}
+
+// UnassignManager removes a manager from a space
+func (s *SpaceService) UnassignManager(spaceID, userID uuid.UUID) error {
+	// Check permissions
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if !user.IsAdmin() {
+		return errors.New("only administrators can unassign managers")
+	}
+
+	// Update space
+	updates := map[string]interface{}{
+		"manager_id": nil,
+	}
+
+	_, err = s.spaceRepo.Update(spaceID, updates)
+	if err != nil {
+		return fmt.Errorf("failed to unassign manager: %w", err)
+	}
+
+	return nil
+}
+
+// ========================================
+// UTILITY OPERATIONS
+// ========================================
+
+// GetDistinctBuildings retrieves all unique building names
+func (s *SpaceService) GetDistinctBuildings() ([]string, error) {
 	buildings, err := s.spaceRepo.GetDistinctBuildings()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get buildings: %w", err)
@@ -504,120 +657,178 @@ func (s *SpaceService) GetBuildings() ([]string, error) {
 	return buildings, nil
 }
 
-// Helper methods
-
-// buildSpaceFilters converts DTO filters to repository filters
-func (s *SpaceService) buildSpaceFilters(req *dto.SpaceFiltersRequest) map[string]interface{} {
-	filters := make(map[string]interface{})
-
-	if len(req.Types) > 0 {
-		filters["types"] = req.Types
-	}
-	if len(req.Buildings) > 0 {
-		filters["buildings"] = req.Buildings
-	}
-	if len(req.Floors) > 0 {
-		filters["floors"] = req.Floors
-	}
-	if req.MinCapacity != nil {
-		filters["min_capacity"] = *req.MinCapacity
-	}
-	if req.MaxCapacity != nil {
-		filters["max_capacity"] = *req.MaxCapacity
-	}
-	if len(req.Status) > 0 {
-		filters["status"] = req.Status
-	}
-	if len(req.RequiredEquipment) > 0 {
-		filters["required_equipment"] = req.RequiredEquipment
-	}
-	if req.RequiresApproval != nil {
-		filters["requires_approval"] = *req.RequiresApproval
-	}
-	if req.MaxPricePerHour != nil {
-		filters["max_price_per_hour"] = *req.MaxPricePerHour
-	}
-	if req.MaxPricePerDay != nil {
-		filters["max_price_per_day"] = *req.MaxPricePerDay
-	}
-	if req.MaxPricePerMonth != nil {
-		filters["max_price_per_month"] = *req.MaxPricePerMonth
-	}
-	if req.AvailableStartTime != nil && req.AvailableEndTime != nil {
-		filters["available_start_time"] = *req.AvailableStartTime
-		filters["available_end_time"] = *req.AvailableEndTime
-	}
-
-	// Add sorting
-	if req.SortBy != "" {
-		filters["sort_by"] = req.SortBy
-	}
-	if req.SortOrder != "" {
-		filters["sort_order"] = req.SortOrder
-	}
-
-	return filters
-}
-
-// convertEquipmentToJSON converts equipment slice to JSON
-func (s *SpaceService) convertEquipmentToJSON(equipment []dto.Equipment) (datatypes.JSON, error) {
-	if len(equipment) == 0 {
-		return nil, nil
-	}
-
-	jsonData, err := json.Marshal(equipment)
+// GetDistinctFloors retrieves all unique floor numbers
+func (s *SpaceService) GetDistinctFloors() ([]int, error) {
+	floors, err := s.spaceRepo.GetDistinctFloors()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get floors: %w", err)
 	}
 
-	return datatypes.JSON(jsonData), nil
+	return floors, nil
 }
 
-// convertPhotosToJSON converts photos slice to JSON
-func (s *SpaceService) convertPhotosToJSON(photos []string) (datatypes.JSON, error) {
-	if len(photos) == 0 {
-		return nil, nil
-	}
-
-	jsonData, err := json.Marshal(photos)
+// GetSpaceOptions returns available options for space creation/editing
+func (s *SpaceService) GetSpaceOptions() (*dto.SpaceOptionsResponse, error) {
+	// Get buildings and floors
+	buildings, err := s.GetDistinctBuildings()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get buildings: %w", err)
 	}
 
-	return datatypes.JSON(jsonData), nil
+	floors, err := s.GetDistinctFloors()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get floors: %w", err)
+	}
+
+	// Define space types
+	spaceTypes := []dto.SpaceTypeOption{
+		{Value: "meeting_room", Label: "Meeting Room", Description: "Small to medium rooms for meetings"},
+		{Value: "conference_room", Label: "Conference Room", Description: "Large rooms for conferences"},
+		{Value: "office", Label: "Office", Description: "Individual or shared office spaces"},
+		{Value: "auditorium", Label: "Auditorium", Description: "Large presentation spaces"},
+		{Value: "open_space", Label: "Open Space", Description: "Collaborative open areas"},
+		{Value: "hot_desk", Label: "Hot Desk", Description: "Flexible workstations"},
+	}
+
+	// Define statuses
+	statuses := []dto.SpaceStatusOption{
+		{Value: "available", Label: "Available", Description: "Space is available for booking"},
+		{Value: "maintenance", Label: "Maintenance", Description: "Space is under maintenance"},
+		{Value: "out_of_service", Label: "Out of Service", Description: "Space is temporarily unavailable"},
+		{Value: "reserved", Label: "Reserved", Description: "Space is reserved for special use"},
+	}
+
+	return &dto.SpaceOptionsResponse{
+		Types:     spaceTypes,
+		Buildings: buildings,
+		Floors:    floors,
+		Statuses:  statuses,
+	}, nil
 }
 
-// canManageSpaces checks if user can manage spaces
-func (s *SpaceService) canManageSpaces(user *models.User) bool {
-	// Check if user has admin or manager role
-	return user.Role == models.RoleAdmin || user.Role == models.RoleManager
+// ========================================
+// STATISTICS OPERATIONS
+// ========================================
+
+// GetSpaceCount gets total space count
+func (s *SpaceService) GetSpaceCount() (int64, error) {
+	count, err := s.spaceRepo.CountSpaces()
+	if err != nil {
+		return 0, fmt.Errorf("failed to count spaces: %w", err)
+	}
+
+	return count, nil
 }
 
-// canBeSpaceManager checks if user can be a space manager
-func (s *SpaceService) canBeSpaceManager(user *models.User) bool {
-	// Check if user has appropriate role to be a space manager
-	return user.Role == models.RoleAdmin || user.Role == models.RoleManager
-}
-
-// getUserName gets the full name of a user by ID
-func (s *SpaceService) getUserName(userID uuid.UUID) string {
+// GetSpaceCountByStatus gets space count by status
+func (s *SpaceService) GetSpaceCountByStatus(status string, userID uuid.UUID) (int64, error) {
+	// Check permissions
 	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
-		return "Unknown User"
+		return 0, fmt.Errorf("failed to get user: %w", err)
 	}
-	return user.FirstName + " " + user.LastName
+
+	if !user.IsAdmin() && !user.IsManager() {
+		return 0, errors.New("access denied")
+	}
+
+	count, err := s.spaceRepo.CountSpacesByStatus(status)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count spaces by status: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetSpaceCountByBuilding gets space count by building
+func (s *SpaceService) GetSpaceCountByBuilding(building string) (int64, error) {
+	count, err := s.spaceRepo.CountSpacesByBuilding(building)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count spaces by building: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetSpaceReservationCount gets total reservation count for a space
+func (s *SpaceService) GetSpaceReservationCount(spaceID uuid.UUID, userID uuid.UUID) (int64, error) {
+	// Check if user can view space stats
+	if !s.canUserViewSpaceStats(spaceID, userID) {
+		return 0, errors.New("access denied")
+	}
+
+	count, err := s.reservationRepo.CountSpaceReservations(spaceID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count space reservations: %w", err)
+	}
+
+	return count, nil
+}
+
+// ========================================
+// HELPER METHODS
+// ========================================
+
+// canUserModifySpace checks if user can modify a space
+func (s *SpaceService) canUserModifySpace(space *models.Space, userID uuid.UUID) bool {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	// Admins can modify any space
+	if user.IsAdmin() {
+		return true
+	}
+
+	// Managers can modify spaces they manage
+	if user.IsManager() && space.ManagerID != nil && *space.ManagerID == userID {
+		return true
+	}
+
+	return false
+}
+
+// canUserViewSpaceStats checks if user can view space statistics
+func (s *SpaceService) canUserViewSpaceStats(spaceID uuid.UUID, userID uuid.UUID) bool {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	// Admins can view all stats
+	if user.IsAdmin() {
+		return true
+	}
+
+	// Managers can view stats for spaces they manage
+	if user.IsManager() {
+		space, err := s.spaceRepo.GetByID(spaceID)
+		if err != nil {
+			return false
+		}
+		return space.ManagerID != nil && *space.ManagerID == userID
+	}
+
+	return false
 }
 
 // findNextAvailableSlot finds the next available time slot for a space
-func (s *SpaceService) findNextAvailableSlot(spaceID uuid.UUID, startTime time.Time, duration time.Duration) (*dto.TimeSlot, error) {
-	// This would implement logic to find the next available slot
-	// For now, returning nil as placeholder
-	return nil, nil
-}
+func (s *SpaceService) findNextAvailableSlot(spaceID uuid.UUID, startSearchTime time.Time, duration time.Duration) *dto.TimeSlot {
+	// Simple implementation: check the next 24 hours in 1-hour increments
+	for i := 0; i < 24; i++ {
+		candidateStart := startSearchTime.Add(time.Duration(i) * time.Hour)
+		candidateEnd := candidateStart.Add(duration)
 
-// findAlternativeSlots finds alternative available time slots
-func (s *SpaceService) findAlternativeSlots(spaceID uuid.UUID, preferredStart time.Time, duration time.Duration) ([]dto.AvailabilitySlot, error) {
-	// This would implement logic to find alternative slots
-	// For now, returning empty slice as placeholder
-	return []dto.AvailabilitySlot{}, nil
+		// Use reservation repo method for consistency
+		available, err := s.reservationRepo.CheckTimeSlotAvailability(spaceID, candidateStart, candidateEnd, nil)
+		if err == nil && available {
+			return &dto.TimeSlot{
+				StartTime: candidateStart,
+				EndTime:   candidateEnd,
+			}
+		}
+	}
+
+	return nil
 }

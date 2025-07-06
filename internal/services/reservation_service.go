@@ -2,118 +2,100 @@
 package services
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
-	"gorm.io/gorm"
+	"gorm.io/datatypes"
 
+	"room-reservation-api/internal/dto"
 	"room-reservation-api/internal/models"
+	"room-reservation-api/internal/repositories/interfaces"
 )
 
-var (
-	ErrReservationNotFound     = errors.New("reservation not found")
-	ErrReservationConflict     = errors.New("reservation conflicts with existing booking")
-	ErrInvalidReservationTime  = errors.New("invalid reservation time")
-	ErrInsufficientCapacity    = errors.New("space capacity exceeded")
-	ErrReservationInPast       = errors.New("cannot create reservation in the past")
-	ErrCannotModifyReservation = errors.New("reservation cannot be modified")
-	ErrUnauthorizedAccess      = errors.New("unauthorized access to reservation")
-)
-
+// ReservationService handles all reservation business logic
 type ReservationService struct {
-	db                  *gorm.DB
-	spaceService        *SpaceService
-	notificationService NotificationService
+	reservationRepo interfaces.ReservationRepositoryInterface
+	spaceRepo       interfaces.SpaceRepositoryInterface
+	userRepo        interfaces.UserRepositoryInterface
 }
 
-func NewReservationService(db *gorm.DB, spaceService *SpaceService, notificationService NotificationService) *ReservationService {
+// NewReservationService creates a new reservation service
+func NewReservationService(
+	reservationRepo interfaces.ReservationRepositoryInterface,
+	spaceRepo interfaces.SpaceRepositoryInterface,
+	userRepo interfaces.UserRepositoryInterface,
+) *ReservationService {
 	return &ReservationService{
-		db:                  db,
-		spaceService:        spaceService,
-		notificationService: notificationService,
+		reservationRepo: reservationRepo,
+		spaceRepo:       spaceRepo,
+		userRepo:        userRepo,
 	}
 }
 
-// CreateReservationRequest represents reservation creation request
-type CreateReservationRequest struct {
-	SpaceID           uuid.UUID                 `json:"space_id" validate:"required"`
-	StartTime         time.Time                 `json:"start_time" validate:"required"`
-	EndTime           time.Time                 `json:"end_time" validate:"required"`
-	ParticipantCount  int                       `json:"participant_count" validate:"required,min=1"`
-	Title             string                    `json:"title" validate:"required,min=2,max=200"`
-	Description       string                    `json:"description"`
-	IsRecurring       bool                      `json:"is_recurring"`
-	RecurrencePattern *models.RecurrencePattern `json:"recurrence_pattern,omitempty"`
-}
-
-// UpdateReservationRequest represents reservation update request
-type UpdateReservationRequest struct {
-	StartTime        *time.Time `json:"start_time"`
-	EndTime          *time.Time `json:"end_time"`
-	ParticipantCount *int       `json:"participant_count" validate:"omitempty,min=1"`
-	Title            *string    `json:"title" validate:"omitempty,min=2,max=200"`
-	Description      *string    `json:"description"`
-}
-
-// ReservationFilter represents filters for reservation queries
-type ReservationFilter struct {
-	UserID    *uuid.UUID                `form:"user_id"`
-	SpaceID   *uuid.UUID                `form:"space_id"`
-	Status    *models.ReservationStatus `form:"status"`
-	StartDate *time.Time                `form:"start_date"`
-	EndDate   *time.Time                `form:"end_date"`
-	Page      int                       `form:"page,default=1"`
-	Limit     int                       `form:"limit,default=20"`
-	SortBy    string                    `form:"sort_by,default=start_time"`
-	SortOrder string                    `form:"sort_order,default=desc"`
-}
-
-// PaginatedReservationResponse represents paginated reservation response
-type PaginatedReservationResponse struct {
-	Data       []models.Reservation `json:"data"`
-	Total      int64                `json:"total"`
-	Page       int                  `json:"page"`
-	Limit      int                  `json:"limit"`
-	TotalPages int                  `json:"total_pages"`
-}
+// ========================================
+// BASIC CRUD OPERATIONS
+// ========================================
 
 // CreateReservation creates a new reservation
-func (s *ReservationService) CreateReservation(userID uuid.UUID, req CreateReservationRequest) (*models.Reservation, error) {
-	// Validate time range
-	if err := s.validateTimeRange(req.StartTime, req.EndTime); err != nil {
-		return nil, err
+func (s *ReservationService) CreateReservation(req *dto.CreateReservationRequest, userID uuid.UUID) (*models.Reservation, error) {
+	// Validate the request
+	if err := req.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed: %w", err)
 	}
 
-	// Get space details
-	space, err := s.spaceService.GetSpaceByID(req.SpaceID)
+	// Get the space to validate capacity and requirements
+	space, err := s.spaceRepo.GetByID(req.SpaceID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get space: %w", err)
 	}
 
-	// Validate capacity
+	// Basic validations
+	if !space.IsAvailable() {
+		return nil, errors.New("space is not available for booking")
+	}
+
 	if req.ParticipantCount > space.Capacity {
-		return nil, ErrInsufficientCapacity
+		return nil, fmt.Errorf("participant count (%d) exceeds space capacity (%d)", req.ParticipantCount, space.Capacity)
 	}
 
-	// Check space availability
-	availabilityReq := AvailabilityRequest{
-		SpaceID:   req.SpaceID,
-		StartTime: req.StartTime,
-		EndTime:   req.EndTime,
-	}
-
-	availability, err := s.spaceService.CheckAvailability(availabilityReq)
+	// Check for time conflicts
+	available, err := s.reservationRepo.CheckTimeSlotAvailability(req.SpaceID, req.StartTime, req.EndTime, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check availability: %w", err)
 	}
-
-	if !availability.Available {
-		return nil, ErrReservationConflict
+	if !available {
+		return nil, errors.New("time slot is not available")
 	}
 
-	// Determine initial status
+	// Validate booking time
+	if req.StartTime.Before(time.Now()) {
+		return nil, errors.New("cannot book in the past")
+	}
+
+	if req.EndTime.Before(req.StartTime) {
+		return nil, errors.New("end time must be after start time")
+	}
+
+	// Check advance booking time
+	if space.BookingAdvanceTime > 0 {
+		minBookingTime := time.Now().Add(time.Duration(space.BookingAdvanceTime) * time.Minute)
+		if req.StartTime.Before(minBookingTime) {
+			return nil, fmt.Errorf("reservations must be made at least %d minutes in advance", space.BookingAdvanceTime)
+		}
+	}
+
+	// Check maximum duration
+	if space.MaxBookingDuration > 0 {
+		maxDuration := time.Duration(space.MaxBookingDuration) * time.Minute
+		if req.EndTime.Sub(req.StartTime) > maxDuration {
+			return nil, fmt.Errorf("booking duration cannot exceed %d minutes", space.MaxBookingDuration)
+		}
+	}
+
+	// Determine status
 	status := models.StatusConfirmed
 	if space.RequiresApproval {
 		status = models.StatusPending
@@ -121,7 +103,6 @@ func (s *ReservationService) CreateReservation(userID uuid.UUID, req CreateReser
 
 	// Create reservation
 	reservation := &models.Reservation{
-		ID:               uuid.New(),
 		UserID:           userID,
 		SpaceID:          req.SpaceID,
 		StartTime:        req.StartTime,
@@ -133,448 +114,714 @@ func (s *ReservationService) CreateReservation(userID uuid.UUID, req CreateReser
 		IsRecurring:      req.IsRecurring,
 	}
 
-	// Handle recurring reservations
+	// Handle recurrence if needed
 	if req.IsRecurring && req.RecurrencePattern != nil {
-		return s.createRecurringReservation(reservation, req.RecurrencePattern)
+		patternBytes, err := json.Marshal(req.RecurrencePattern)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize recurrence pattern: %w", err)
+		}
+		reservation.RecurrencePattern = datatypes.JSON(patternBytes)
 	}
 
-	// Create single reservation
-	if err := s.db.Create(reservation).Error; err != nil {
+	createdReservation, err := s.reservationRepo.Create(reservation)
+	if err != nil {
 		return nil, fmt.Errorf("failed to create reservation: %w", err)
 	}
 
-	// Load relationships
-	if err := s.db.Preload("User").Preload("Space").First(reservation, reservation.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to load reservation: %w", err)
+	// Create recurring instances if needed
+	if req.IsRecurring && req.RecurrencePattern != nil {
+		s.createRecurringInstances(createdReservation, req.RecurrencePattern)
 	}
 
-	// Send notifications
-	go s.sendReservationNotifications(reservation, "created")
+	return createdReservation, nil
+}
+
+// GetReservationByID retrieves a reservation by ID
+func (s *ReservationService) GetReservationByID(reservationID, userID uuid.UUID) (*models.Reservation, error) {
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get reservation: %w", err)
+	}
+
+	// Check permissions
+	if !s.canUserAccessReservation(reservation, userID) {
+		return nil, errors.New("access denied")
+	}
 
 	return reservation, nil
 }
 
-// createRecurringReservation creates multiple reservations based on recurrence pattern
-func (s *ReservationService) createRecurringReservation(baseReservation *models.Reservation, pattern *models.RecurrencePattern) (*models.Reservation, error) {
-	// Create parent reservation
-	if err := s.db.Create(baseReservation).Error; err != nil {
-		return nil, fmt.Errorf("failed to create parent reservation: %w", err)
-	}
-
-	// Generate child reservations
-	childReservations, err := s.generateRecurringReservations(baseReservation, pattern)
+// UpdateReservation updates a reservation
+func (s *ReservationService) UpdateReservation(reservationID uuid.UUID, req *dto.UpdateReservationRequest, userID uuid.UUID) (*models.Reservation, error) {
+	// Get existing reservation
+	reservation, err := s.reservationRepo.GetByID(reservationID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate recurring reservations: %w", err)
+		return nil, fmt.Errorf("failed to get reservation: %w", err)
 	}
 
-	// Create child reservations in batch
-	if len(childReservations) > 0 {
-		if err := s.db.CreateInBatches(childReservations, 50).Error; err != nil {
-			return nil, fmt.Errorf("failed to create child reservations: %w", err)
+	// Check permissions
+	if !s.canUserModifyReservation(reservation, userID) {
+		return nil, errors.New("access denied")
+	}
+
+	// Check if can be modified
+	if !reservation.CanBeModified() {
+		return nil, errors.New("reservation cannot be modified")
+	}
+
+	// Build updates
+	updates := make(map[string]interface{})
+	if req.StartTime != nil {
+		updates["start_time"] = *req.StartTime
+	}
+	if req.EndTime != nil {
+		updates["end_time"] = *req.EndTime
+	}
+	if req.ParticipantCount != nil {
+		updates["participant_count"] = *req.ParticipantCount
+	}
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+
+	// Validate time changes
+	if req.StartTime != nil || req.EndTime != nil {
+		startTime := reservation.StartTime
+		endTime := reservation.EndTime
+		if req.StartTime != nil {
+			startTime = *req.StartTime
+		}
+		if req.EndTime != nil {
+			endTime = *req.EndTime
+		}
+
+		available, err := s.reservationRepo.CheckTimeSlotAvailability(reservation.SpaceID, startTime, endTime, &reservationID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to check availability: %w", err)
+		}
+		if !available {
+			return nil, errors.New("time slot is not available")
 		}
 	}
 
-	// Load relationships
-	if err := s.db.Preload("User").Preload("Space").First(baseReservation, baseReservation.ID).Error; err != nil {
-		return nil, fmt.Errorf("failed to load reservation: %w", err)
+	// Validate capacity changes
+	if req.ParticipantCount != nil {
+		space, err := s.spaceRepo.GetByID(reservation.SpaceID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get space: %w", err)
+		}
+		if *req.ParticipantCount > space.Capacity {
+			return nil, fmt.Errorf("participant count (%d) exceeds space capacity (%d)", *req.ParticipantCount, space.Capacity)
+		}
 	}
 
-	return baseReservation, nil
+	updatedReservation, err := s.reservationRepo.Update(reservationID, updates)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update reservation: %w", err)
+	}
+
+	return updatedReservation, nil
 }
 
-// generateRecurringReservations generates child reservations based on pattern
-func (s *ReservationService) generateRecurringReservations(parent *models.Reservation, pattern *models.RecurrencePattern) ([]models.Reservation, error) {
-	var reservations []models.Reservation
-	current := parent.StartTime
-	duration := parent.EndTime.Sub(parent.StartTime)
-	count := 0
-	maxOccurrences := 100 // Default limit
-
-	if pattern.MaxOccurrences != nil {
-		maxOccurrences = *pattern.MaxOccurrences
+// CancelReservation cancels a reservation
+func (s *ReservationService) CancelReservation(reservationID uuid.UUID, reason string, userID uuid.UUID) error {
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return fmt.Errorf("failed to get reservation: %w", err)
 	}
 
-	for count < maxOccurrences {
-		var nextTime time.Time
+	if !s.canUserModifyReservation(reservation, userID) {
+		return errors.New("access denied")
+	}
 
-		switch pattern.Type {
-		case models.RecurrenceDaily:
-			nextTime = current.AddDate(0, 0, pattern.Interval)
-		case models.RecurrenceWeekly:
-			nextTime = current.AddDate(0, 0, 7*pattern.Interval)
-		case models.RecurrenceMonthly:
-			nextTime = current.AddDate(0, pattern.Interval, 0)
-		default:
-			return nil, fmt.Errorf("unsupported recurrence type: %s", pattern.Type)
-		}
+	if !reservation.CanBeCancelled() {
+		return errors.New("reservation cannot be cancelled")
+	}
 
-		// Check end date
-		if pattern.EndDate != nil && nextTime.After(*pattern.EndDate) {
-			break
-		}
+	updates := map[string]interface{}{
+		"status":              models.StatusCancelled,
+		"cancellation_reason": reason,
+	}
 
-		// Check day of week for weekly recurrence
-		if pattern.Type == models.RecurrenceWeekly && len(pattern.DaysOfWeek) > 0 {
-			weekday := int(nextTime.Weekday())
-			found := false
-			for _, day := range pattern.DaysOfWeek {
-				if day == weekday {
-					found = true
-					break
-				}
-			}
-			if !found {
-				current = nextTime
-				continue
-			}
-		}
+	_, err = s.reservationRepo.Update(reservationID, updates)
+	if err != nil {
+		return fmt.Errorf("failed to cancel reservation: %w", err)
+	}
 
-		// Create child reservation
-		childReservation := models.Reservation{
-			ID:                 uuid.New(),
-			UserID:             parent.UserID,
-			SpaceID:            parent.SpaceID,
-			StartTime:          nextTime,
-			EndTime:            nextTime.Add(duration),
-			ParticipantCount:   parent.ParticipantCount,
-			Title:              parent.Title,
-			Description:        parent.Description,
-			Status:             parent.Status,
-			IsRecurring:        false,
-			RecurrenceParentID: &parent.ID,
-		}
+	return nil
+}
 
-		reservations = append(reservations, childReservation)
-		current = nextTime
-		count++
+// DeleteReservation deletes a reservation (admin only)
+func (s *ReservationService) DeleteReservation(reservationID, userID uuid.UUID) error {
+	// Check if user is admin
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.Role != models.RoleAdmin {
+		return errors.New("only administrators can delete reservations")
+	}
+
+	return s.reservationRepo.Delete(reservationID)
+}
+
+// ========================================
+// USER OPERATIONS
+// ========================================
+
+// GetUserReservations gets all reservations for a user
+func (s *ReservationService) GetUserReservations(userID uuid.UUID, offset, limit int) ([]*models.Reservation, int64, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+
+	reservations, total, err := s.reservationRepo.GetUserReservations(userID, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user reservations: %w", err)
+	}
+
+	return reservations, total, nil
+}
+
+// GetUserUpcomingReservations gets upcoming reservations for a user
+func (s *ReservationService) GetUserUpcomingReservations(userID uuid.UUID, limit int) ([]*models.Reservation, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	reservations, err := s.reservationRepo.GetUserUpcomingReservations(userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get upcoming reservations: %w", err)
 	}
 
 	return reservations, nil
 }
 
-// GetReservations retrieves reservations with filters and pagination
-func (s *ReservationService) GetReservations(filter ReservationFilter) (*PaginatedReservationResponse, error) {
-	query := s.db.Model(&models.Reservation{}).
-		Preload("User").
-		Preload("Space").
-		Preload("Approver")
-
-	// Apply filters
-	if filter.UserID != nil {
-		query = query.Where("user_id = ?", *filter.UserID)
-	}
-	if filter.SpaceID != nil {
-		query = query.Where("space_id = ?", *filter.SpaceID)
-	}
-	if filter.Status != nil {
-		query = query.Where("status = ?", *filter.Status)
-	}
-	if filter.StartDate != nil {
-		query = query.Where("start_time >= ?", *filter.StartDate)
-	}
-	if filter.EndDate != nil {
-		query = query.Where("end_time <= ?", *filter.EndDate)
+// GetUserPastReservations gets past reservations for a user
+func (s *ReservationService) GetUserPastReservations(userID uuid.UUID, offset, limit int) ([]*models.Reservation, int64, error) {
+	if limit <= 0 {
+		limit = 20
 	}
 
-	// Count total records
-	var total int64
-	if err := query.Count(&total).Error; err != nil {
-		return nil, fmt.Errorf("failed to count reservations: %w", err)
-	}
-
-	// Apply sorting
-	orderClause := filter.SortBy
-	if filter.SortOrder == "desc" {
-		orderClause += " DESC"
-	}
-	query = query.Order(orderClause)
-
-	// Apply pagination
-	offset := (filter.Page - 1) * filter.Limit
-	query = query.Offset(offset).Limit(filter.Limit)
-
-	var reservations []models.Reservation
-	if err := query.Find(&reservations).Error; err != nil {
-		return nil, fmt.Errorf("failed to fetch reservations: %w", err)
-	}
-
-	totalPages := int((total + int64(filter.Limit) - 1) / int64(filter.Limit))
-
-	return &PaginatedReservationResponse{
-		Data:       reservations,
-		Total:      total,
-		Page:       filter.Page,
-		Limit:      filter.Limit,
-		TotalPages: totalPages,
-	}, nil
-}
-
-// GetReservationByID retrieves a reservation by ID
-func (s *ReservationService) GetReservationByID(id uuid.UUID, userID uuid.UUID, userRole models.UserRole) (*models.Reservation, error) {
-	var reservation models.Reservation
-	if err := s.db.Preload("User").Preload("Space").Preload("Approver").Where("id = ?", id).First(&reservation).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrReservationNotFound
-		}
-		return nil, fmt.Errorf("failed to fetch reservation: %w", err)
-	}
-
-	// Check access permissions
-	if !s.canAccessReservation(&reservation, userID, userRole) {
-		return nil, ErrUnauthorizedAccess
-	}
-
-	return &reservation, nil
-}
-
-// UpdateReservation updates an existing reservation
-func (s *ReservationService) UpdateReservation(id uuid.UUID, userID uuid.UUID, userRole models.UserRole, req UpdateReservationRequest) (*models.Reservation, error) {
-	reservation, err := s.GetReservationByID(id, userID, userRole)
+	reservations, total, err := s.reservationRepo.GetUserPastReservations(userID, offset, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, fmt.Errorf("failed to get past reservations: %w", err)
 	}
 
-	// Check if reservation can be modified
-	if !reservation.CanBeModified() {
-		return nil, ErrCannotModifyReservation
-	}
+	return reservations, total, nil
+}
 
-	// Check if user can modify this reservation
-	if reservation.UserID != userID && userRole != models.RoleAdmin {
-		return nil, ErrUnauthorizedAccess
+// GetUserActiveReservation gets the current active reservation for a user
+func (s *ReservationService) GetUserActiveReservation(userID uuid.UUID) (*models.Reservation, error) {
+	reservation, err := s.reservationRepo.GetUserActiveReservation(userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active reservation: %w", err)
 	}
-
-	// Validate time changes if provided
-	startTime := reservation.StartTime
-	endTime := reservation.EndTime
-
-	if req.StartTime != nil {
-		startTime = *req.StartTime
-	}
-	if req.EndTime != nil {
-		endTime = *req.EndTime
-	}
-
-	if req.StartTime != nil || req.EndTime != nil {
-		if err := s.validateTimeRange(startTime, endTime); err != nil {
-			return nil, err
-		}
-
-		// Check availability for new time slot
-		availabilityReq := AvailabilityRequest{
-			SpaceID:   reservation.SpaceID,
-			StartTime: startTime,
-			EndTime:   endTime,
-		}
-
-		availability, err := s.spaceService.CheckAvailability(availabilityReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to check availability: %w", err)
-		}
-
-		if !availability.Available {
-			// Check if the conflict is only with the current reservation
-			hasOtherConflicts := false
-			for _, conflict := range availability.ConflictingReservations {
-				if conflict.ID != reservation.ID {
-					hasOtherConflicts = true
-					break
-				}
-			}
-			if hasOtherConflicts {
-				return nil, ErrReservationConflict
-			}
-		}
-	}
-
-	// Update fields
-	if req.StartTime != nil {
-		reservation.StartTime = *req.StartTime
-	}
-	if req.EndTime != nil {
-		reservation.EndTime = *req.EndTime
-	}
-	if req.ParticipantCount != nil {
-		// Validate capacity
-		space, err := s.spaceService.GetSpaceByID(reservation.SpaceID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get space: %w", err)
-		}
-		if *req.ParticipantCount > space.Capacity {
-			return nil, ErrInsufficientCapacity
-		}
-		reservation.ParticipantCount = *req.ParticipantCount
-	}
-	if req.Title != nil {
-		reservation.Title = *req.Title
-	}
-	if req.Description != nil {
-		reservation.Description = *req.Description
-	}
-
-	// Reset to pending if space requires approval for modifications
-	if reservation.Space.RequiresApproval && (req.StartTime != nil || req.EndTime != nil) {
-		reservation.Status = models.StatusPending
-		reservation.ApproverID = nil
-		reservation.ApprovalComments = ""
-	}
-
-	if err := s.db.Save(reservation).Error; err != nil {
-		return nil, fmt.Errorf("failed to update reservation: %w", err)
-	}
-
-	// Send notifications
-	go s.sendReservationNotifications(reservation, "updated")
 
 	return reservation, nil
 }
 
-// CancelReservation cancels a reservation
-func (s *ReservationService) CancelReservation(id uuid.UUID, userID uuid.UUID, userRole models.UserRole, reason string) error {
-	reservation, err := s.GetReservationByID(id, userID, userRole)
+// ========================================
+// SPACE OPERATIONS
+// ========================================
+
+// GetSpaceReservations gets reservations for a space
+func (s *ReservationService) GetSpaceReservations(spaceID uuid.UUID, startDate, endDate time.Time, userID uuid.UUID) ([]*models.Reservation, error) {
+	// Basic permission check - everyone can view space schedules
+	reservations, _, err := s.reservationRepo.GetSpaceReservationsByDateRange(spaceID, startDate, endDate, 0, 100)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("failed to get space reservations: %w", err)
 	}
 
-	// Check if reservation can be cancelled
-	if !reservation.CanBeCancelled() {
-		return ErrCannotModifyReservation
-	}
-
-	// Check permissions
-	if reservation.UserID != userID && userRole != models.RoleAdmin {
-		return ErrUnauthorizedAccess
-	}
-
-	// Update reservation status
-	reservation.Status = models.StatusCancelled
-	reservation.CancellationReason = reason
-
-	if err := s.db.Save(reservation).Error; err != nil {
-		return fmt.Errorf("failed to cancel reservation: %w", err)
-	}
-
-	// Cancel child reservations if this is a recurring reservation
-	if reservation.IsRecurring {
-		if err := s.db.Model(&models.Reservation{}).
-			Where("recurrence_parent_id = ? AND status IN ?",
-				reservation.ID,
-				[]models.ReservationStatus{models.StatusConfirmed, models.StatusPending}).
-			Updates(map[string]interface{}{
-				"status":              models.StatusCancelled,
-				"cancellation_reason": "Parent reservation cancelled",
-			}).Error; err != nil {
-			return fmt.Errorf("failed to cancel child reservations: %w", err)
-		}
-	}
-
-	// Send notifications
-	go s.sendReservationNotifications(reservation, "cancelled")
-
-	return nil
+	return reservations, nil
 }
 
-// ApproveReservation approves a pending reservation
-func (s *ReservationService) ApproveReservation(id uuid.UUID, approverID uuid.UUID, comments string) error {
-	var reservation models.Reservation
-	if err := s.db.Preload("User").Preload("Space").Where("id = ?", id).First(&reservation).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrReservationNotFound
+// CheckSpaceAvailability checks if a space is available
+func (s *ReservationService) CheckSpaceAvailability(spaceID uuid.UUID, startTime, endTime time.Time) (*dto.AvailabilityResponse, error) {
+	// Get space info
+	space, err := s.spaceRepo.GetByID(spaceID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get space: %w", err)
+	}
+
+	// Check availability
+	available, err := s.reservationRepo.CheckTimeSlotAvailability(spaceID, startTime, endTime, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check availability: %w", err)
+	}
+
+	response := &dto.AvailabilityResponse{
+		SpaceID:     spaceID,
+		SpaceName:   space.Name,
+		IsAvailable: available,
+		RequestedSlot: dto.TimeSlot{
+			StartTime: startTime,
+			EndTime:   endTime,
+		},
+	}
+
+	// Get conflicts if not available
+	if !available {
+		conflictReservations, err := s.reservationRepo.GetConflictingReservations(spaceID, startTime, endTime)
+		if err == nil {
+			for _, conflict := range conflictReservations {
+				userName := conflict.User.FirstName + " " + conflict.User.LastName
+				if userName == " " {
+					userName = conflict.User.Email
+				}
+				response.Conflicts = append(response.Conflicts, dto.ReservationConflict{
+					ReservationID: conflict.ID,
+					Title:         conflict.Title,
+					StartTime:     conflict.StartTime,
+					EndTime:       conflict.EndTime,
+					UserName:      userName,
+					Status:        string(conflict.Status),
+				})
+			}
 		}
-		return fmt.Errorf("failed to fetch reservation: %w", err)
+	}
+
+	return response, nil
+}
+
+// ========================================
+// APPROVAL OPERATIONS
+// ========================================
+
+// GetPendingApprovals gets reservations needing approval
+func (s *ReservationService) GetPendingApprovals(managerID uuid.UUID, offset, limit int) ([]*models.Reservation, int64, error) {
+	// Check if user is manager/admin
+	user, err := s.userRepo.GetByID(managerID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.Role != models.RoleManager && user.Role != models.RoleAdmin {
+		return nil, 0, errors.New("only managers and admins can view pending approvals")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	reservations, total, err := s.reservationRepo.GetPendingApprovals(managerID, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get pending approvals: %w", err)
+	}
+
+	return reservations, total, nil
+}
+
+// ApproveReservation approves a reservation
+func (s *ReservationService) ApproveReservation(reservationID uuid.UUID, approverID uuid.UUID, comments string) error {
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return fmt.Errorf("failed to get reservation: %w", err)
 	}
 
 	if reservation.Status != models.StatusPending {
-		return fmt.Errorf("reservation is not pending approval")
+		return errors.New("reservation is not pending approval")
 	}
 
-	// Update reservation
-	reservation.Status = models.StatusConfirmed
-	reservation.ApproverID = &approverID
-	reservation.ApprovalComments = comments
+	if !s.canUserApproveReservation(reservation, approverID) {
+		return errors.New("access denied")
+	}
 
-	if err := s.db.Save(&reservation).Error; err != nil {
+	err = s.reservationRepo.ApproveReservation(reservationID, approverID, comments)
+	if err != nil {
 		return fmt.Errorf("failed to approve reservation: %w", err)
 	}
 
-	// Send notifications
-	go s.sendReservationNotifications(&reservation, "approved")
-
 	return nil
 }
 
-// RejectReservation rejects a pending reservation
-func (s *ReservationService) RejectReservation(id uuid.UUID, approverID uuid.UUID, comments string) error {
-	var reservation models.Reservation
-	if err := s.db.Preload("User").Preload("Space").Where("id = ?", id).First(&reservation).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrReservationNotFound
-		}
-		return fmt.Errorf("failed to fetch reservation: %w", err)
+// RejectReservation rejects a reservation
+func (s *ReservationService) RejectReservation(reservationID uuid.UUID, approverID uuid.UUID, reason string) error {
+	if reason == "" {
+		return errors.New("rejection reason is required")
+	}
+
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return fmt.Errorf("failed to get reservation: %w", err)
 	}
 
 	if reservation.Status != models.StatusPending {
-		return fmt.Errorf("reservation is not pending approval")
+		return errors.New("reservation is not pending approval")
 	}
 
-	// Update reservation
-	reservation.Status = models.StatusRejected
-	reservation.ApproverID = &approverID
-	reservation.ApprovalComments = comments
+	if !s.canUserApproveReservation(reservation, approverID) {
+		return errors.New("access denied")
+	}
 
-	if err := s.db.Save(&reservation).Error; err != nil {
+	err = s.reservationRepo.RejectReservation(reservationID, approverID, reason)
+	if err != nil {
 		return fmt.Errorf("failed to reject reservation: %w", err)
 	}
 
-	// Send notifications
-	go s.sendReservationNotifications(&reservation, "rejected")
+	return nil
+}
+
+// ========================================
+// CHECK-IN/OUT OPERATIONS
+// ========================================
+
+// CheckIn checks in to a reservation
+func (s *ReservationService) CheckIn(reservationID uuid.UUID, userID uuid.UUID) error {
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return fmt.Errorf("failed to get reservation: %w", err)
+	}
+
+	// Basic validations
+	if reservation.UserID != userID {
+		return errors.New("can only check in to your own reservation")
+	}
+
+	if reservation.Status != models.StatusConfirmed {
+		return errors.New("reservation must be confirmed to check in")
+	}
+
+	if reservation.CheckInTime != nil {
+		return errors.New("already checked in")
+	}
+
+	// Check if it's time to check in (within 15 minutes of start time)
+	now := time.Now()
+	if now.Before(reservation.StartTime.Add(-15*time.Minute)) || now.After(reservation.EndTime) {
+		return errors.New("can only check in within 15 minutes of start time")
+	}
+
+	err = s.reservationRepo.CheckIn(reservationID, now)
+	if err != nil {
+		return fmt.Errorf("failed to check in: %w", err)
+	}
 
 	return nil
 }
 
-// Helper methods
-
-func (s *ReservationService) validateTimeRange(startTime, endTime time.Time) error {
-	if endTime.Before(startTime) || endTime.Equal(startTime) {
-		return ErrInvalidReservationTime
+// CheckOut checks out of a reservation
+func (s *ReservationService) CheckOut(reservationID uuid.UUID, userID uuid.UUID) error {
+	reservation, err := s.reservationRepo.GetByID(reservationID)
+	if err != nil {
+		return fmt.Errorf("failed to get reservation: %w", err)
 	}
 
-	if startTime.Before(time.Now().Add(30 * time.Minute)) {
-		return ErrReservationInPast
+	if reservation.UserID != userID {
+		return errors.New("can only check out of your own reservation")
+	}
+
+	if reservation.CheckInTime == nil {
+		return errors.New("must check in before checking out")
+	}
+
+	if reservation.CheckOutTime != nil {
+		return errors.New("already checked out")
+	}
+
+	now := time.Now()
+	err = s.reservationRepo.CheckOut(reservationID, now)
+	if err != nil {
+		return fmt.Errorf("failed to check out: %w", err)
+	}
+
+	// Mark as completed if checked out
+	_, err = s.reservationRepo.Update(reservationID, map[string]interface{}{
+		"status": models.StatusCompleted,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to mark as completed: %w", err)
 	}
 
 	return nil
 }
 
-func (s *ReservationService) canAccessReservation(reservation *models.Reservation, userID uuid.UUID, userRole models.UserRole) bool {
-	// Admin can access all reservations
-	if userRole == models.RoleAdmin {
-		return true
+// ========================================
+// SEARCH AND FILTER
+// ========================================
+
+// SearchReservations searches reservations with filters
+func (s *ReservationService) SearchReservations(filters map[string]interface{}, offset, limit int, userID uuid.UUID) ([]*models.Reservation, int64, error) {
+	// Check permissions
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	// User can access their own reservations
+	// Regular users can only search their own reservations
+	if user.Role == models.RoleStandardUser {
+		filters["user_id"] = userID
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	reservations, total, err := s.reservationRepo.SearchReservations(filters, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search reservations: %w", err)
+	}
+
+	return reservations, total, nil
+}
+
+// GetReservationsByDateRange gets reservations in a date range
+func (s *ReservationService) GetReservationsByDateRange(startDate, endDate time.Time, offset, limit int, userID uuid.UUID) ([]*models.Reservation, int64, error) {
+	// Check permissions
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// For regular users, only show their reservations
+	if user.Role == models.RoleStandardUser {
+		return s.reservationRepo.GetUserReservations(userID, offset, limit)
+	}
+
+	reservations, total, err := s.reservationRepo.GetReservationsByDateRange(startDate, endDate, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get reservations by date range: %w", err)
+	}
+
+	return reservations, total, nil
+}
+
+// GetReservationsByStatus gets reservations by status
+func (s *ReservationService) GetReservationsByStatus(status string, offset, limit int, userID uuid.UUID) ([]*models.Reservation, int64, error) {
+	// Check permissions - only admins and managers can filter by status
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if user.Role == models.RoleStandardUser {
+		return nil, 0, errors.New("access denied")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	reservations, total, err := s.reservationRepo.GetReservationsByStatus(status, offset, limit)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get reservations by status: %w", err)
+	}
+
+	return reservations, total, nil
+}
+
+// ========================================
+// RECURRING RESERVATIONS
+// ========================================
+
+// GetRecurringReservations gets all reservations in a recurring series
+func (s *ReservationService) GetRecurringReservations(parentID uuid.UUID, userID uuid.UUID) ([]*models.Reservation, error) {
+	// Get parent reservation to check permissions
+	parent, err := s.reservationRepo.GetByID(parentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get parent reservation: %w", err)
+	}
+
+	if !s.canUserAccessReservation(parent, userID) {
+		return nil, errors.New("access denied")
+	}
+
+	reservations, err := s.reservationRepo.GetRecurringReservations(parentID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recurring reservations: %w", err)
+	}
+
+	return reservations, nil
+}
+
+// ========================================
+// STATISTICS
+// ========================================
+
+// GetUserReservationCount gets total reservation count for a user
+func (s *ReservationService) GetUserReservationCount(userID uuid.UUID) (int64, error) {
+	count, err := s.reservationRepo.CountUserReservations(userID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count user reservations: %w", err)
+	}
+
+	return count, nil
+}
+
+// GetSpaceReservationCount gets total reservation count for a space
+func (s *ReservationService) GetSpaceReservationCount(spaceID uuid.UUID, userID uuid.UUID) (int64, error) {
+	// Check if user can view space stats
+	if !s.canUserViewSpaceStats(spaceID, userID) {
+		return 0, errors.New("access denied")
+	}
+
+	count, err := s.reservationRepo.CountSpaceReservations(spaceID)
+	if err != nil {
+		return 0, fmt.Errorf("failed to count space reservations: %w", err)
+	}
+
+	return count, nil
+}
+
+// ========================================
+// HELPER METHODS
+// ========================================
+
+// canUserAccessReservation checks if user can access reservation
+func (s *ReservationService) canUserAccessReservation(reservation *models.Reservation, userID uuid.UUID) bool {
+	// Own reservation
 	if reservation.UserID == userID {
 		return true
 	}
 
-	// Manager can access reservations for their managed spaces
-	if userRole == models.RoleManager && reservation.Space.ManagerID != nil && *reservation.Space.ManagerID == userID {
+	// Admin/Manager check
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	if user.Role == models.RoleAdmin {
 		return true
+	}
+
+	if user.Role == models.RoleManager {
+		space, err := s.spaceRepo.GetByID(reservation.SpaceID)
+		if err != nil {
+			return false
+		}
+		return space.ManagerID != nil && *space.ManagerID == userID
 	}
 
 	return false
 }
 
-func (s *ReservationService) sendReservationNotifications(reservation *models.Reservation, action string) {
-	if s.notificationService == nil {
-		return
+// canUserModifyReservation checks if user can modify reservation
+func (s *ReservationService) canUserModifyReservation(reservation *models.Reservation, userID uuid.UUID) bool {
+	// Own reservation
+	if reservation.UserID == userID {
+		return true
 	}
 
-	// Implementation would send appropriate notifications based on action
-	// This is a placeholder for the notification service integration
+	// Admin check
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	return user.Role == models.RoleAdmin
 }
 
-// NotificationService defines the interface for sending notifications
-type NotificationService interface {
-	SendReservationNotification(reservation *models.Reservation, action string) error
+// canUserApproveReservation checks if user can approve reservation
+func (s *ReservationService) canUserApproveReservation(reservation *models.Reservation, userID uuid.UUID) bool {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	if user.Role == models.RoleAdmin {
+		return true
+	}
+
+	if user.Role == models.RoleManager {
+		space, err := s.spaceRepo.GetByID(reservation.SpaceID)
+		if err != nil {
+			return false
+		}
+		return space.ManagerID != nil && *space.ManagerID == userID
+	}
+
+	return false
+}
+
+// canUserViewSpaceStats checks if user can view space statistics
+func (s *ReservationService) canUserViewSpaceStats(spaceID uuid.UUID, userID uuid.UUID) bool {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
+		return false
+	}
+
+	if user.Role == models.RoleAdmin {
+		return true
+	}
+
+	if user.Role == models.RoleManager {
+		space, err := s.spaceRepo.GetByID(spaceID)
+		if err != nil {
+			return false
+		}
+		return space.ManagerID != nil && *space.ManagerID == userID
+	}
+
+	return false
+}
+
+// createRecurringInstances creates recurring reservation instances (simplified for PFE)
+func (s *ReservationService) createRecurringInstances(parentReservation *models.Reservation, pattern *dto.RecurrencePattern) error {
+	var instances []*models.Reservation
+	currentStart := parentReservation.StartTime
+	duration := parentReservation.EndTime.Sub(parentReservation.StartTime)
+	maxOccurrences := 10 // Limit for PFE
+
+	if pattern.MaxOccurrences != nil && *pattern.MaxOccurrences < maxOccurrences {
+		maxOccurrences = *pattern.MaxOccurrences
+	}
+
+	for i := 0; i < maxOccurrences; i++ {
+		var nextStart time.Time
+		switch pattern.Type {
+		case "daily":
+			nextStart = currentStart.AddDate(0, 0, pattern.Interval)
+		case "weekly":
+			nextStart = currentStart.AddDate(0, 0, 7*pattern.Interval)
+		case "monthly":
+			nextStart = currentStart.AddDate(0, pattern.Interval, 0)
+		default:
+			return fmt.Errorf("unsupported recurrence type: %s", pattern.Type)
+		}
+
+		if pattern.EndDate != nil && nextStart.After(*pattern.EndDate) {
+			break
+		}
+
+		nextEnd := nextStart.Add(duration)
+
+		// Check availability
+		available, err := s.reservationRepo.CheckTimeSlotAvailability(parentReservation.SpaceID, nextStart, nextEnd, nil)
+		if err != nil || !available {
+			continue
+		}
+
+		instance := &models.Reservation{
+			UserID:             parentReservation.UserID,
+			SpaceID:            parentReservation.SpaceID,
+			StartTime:          nextStart,
+			EndTime:            nextEnd,
+			ParticipantCount:   parentReservation.ParticipantCount,
+			Title:              parentReservation.Title,
+			Description:        parentReservation.Description,
+			Status:             parentReservation.Status,
+			IsRecurring:        false,
+			RecurrenceParentID: &parentReservation.ID,
+		}
+
+		instances = append(instances, instance)
+		currentStart = nextStart
+	}
+
+	if len(instances) > 0 {
+		_, err := s.reservationRepo.CreateBatch(instances)
+		if err != nil {
+			return fmt.Errorf("failed to create recurring instances: %w", err)
+		}
+	}
+
+	return nil
 }

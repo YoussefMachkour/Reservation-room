@@ -145,3 +145,47 @@ func GetUserIDFromParamName(paramName string) func(*gin.Context) (string, error)
 		return c.Param(paramName), nil
 	}
 }
+
+// AdminMiddleware ensures only admin users can access admin routes
+func AdminMiddleware() gin.HandlerFunc {
+	return gin.HandlerFunc(func(c *gin.Context) {
+		// Get user role from context (set by AuthMiddleware)
+		userRole, exists := c.Get("user_role")
+		if !exists {
+			c.JSON(403, gin.H{"error": "Access denied: role not found"})
+			c.Abort()
+			return
+		}
+
+		// Check if user is admin
+		if role, ok := userRole.(string); !ok || role != "admin" {
+			c.JSON(403, gin.H{"error": "Access denied: admin role required"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	})
+}
+
+// ManagerMiddleware ensures only managers and admins can access manager routes
+func ManagerMiddleware() gin.HandlerFunc {
+	return gin.HandlerFunc(func(c *gin.Context) {
+		// Get user role from context (set by AuthMiddleware)
+		userRole, exists := c.Get("user_role")
+		if !exists {
+			c.JSON(403, gin.H{"error": "Access denied: role not found"})
+			c.Abort()
+			return
+		}
+
+		// Check if user is manager or admin
+		if role, ok := userRole.(string); !ok || (role != "manager" && role != "admin") {
+			c.JSON(403, gin.H{"error": "Access denied: manager or admin role required"})
+			c.Abort()
+			return
+		}
+
+		c.Next()
+	})
+}
