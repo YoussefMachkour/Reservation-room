@@ -72,22 +72,22 @@ services:
       - ./logs:/app/logs
 
   # Frontend React App (Development)
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: room_reservation_frontend
-    environment:
-      - REACT_APP_API_URL=http://localhost:8080/api/v1
-      - CHOKIDAR_USEPOLLING=true
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    networks:
-      - room_reservation_network
-    restart: unless-stopped
+  # frontend:
+  #   build:
+  #     context: ./frontend
+  #     dockerfile: Dockerfile
+  #   container_name: room_reservation_frontend
+  #   environment:
+  #     - REACT_APP_API_URL=http://localhost:8080/api/v1
+  #     - CHOKIDAR_USEPOLLING=true
+  #   ports:
+  #     - "3000:3000"
+  #   volumes:
+  #     - ./frontend:/app
+  #     - /app/node_modules
+  #   networks:
+  #     - room_reservation_network
+  #   restart: unless-stopped
 
   # MailHog for email testing
   mailhog:

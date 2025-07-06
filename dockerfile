@@ -1,55 +1,55 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:1.23.8-alpine AS builder
 
 # Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git
 
 # Set working directory
 WORKDIR /app
 
-# Copy go mod files
+# Copy only the go.mod and go.sum files first
 COPY go.mod go.sum ./
 
 # Download dependencies
 RUN go mod download
 
-# Copy source code
+# Copy the rest of the source code
 COPY . .
+RUN go mod tidy
+
+
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
+RUN go build -o main ./cmd/app/main.go
 
 # Final stage
-FROM alpine:latest
+FROM alpine:3.18
 
-# Install ca-certificates for HTTPS calls
-RUN apk --no-cache add ca-certificates tzdata
-
-# Create app user
-RUN addgroup -g 1001 -S appgroup && \
-    adduser -S appuser -u 1001 -G appgroup
+# Add timezone data
+RUN apk add --no-cache tzdata
 
 # Set working directory
 WORKDIR /app
 
-# Copy binary from builder stage
+# Copy the binary from the builder stage
 COPY --from=builder /app/main .
+# COPY --from=builder /app/assets ./assets
+COPY .env .env
 
-# Copy static files if any
-COPY --from=builder /app/configs ./configs
+# Create non-root user
+RUN adduser -D appuser
 
-# Create logs directory
-RUN mkdir -p logs && chown -R appuser:appgroup /app
+# Set permissions
+RUN chown -R appuser:appuser /app
 
-# Switch to non-root user
 USER appuser
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+# Expose the port
+EXPOSE ${PORT}
 
-# Expose port
-EXPOSE 8080
+# Add healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:${PORT}/health || exit 1
 
-# Command to run
+# Run the application
 CMD ["./main"]

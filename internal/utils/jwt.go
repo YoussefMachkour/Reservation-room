@@ -3,40 +3,31 @@ package utils
 
 import (
 	"errors"
-	"room-reservation-api/internal/models"
 	"time"
+
+	"room-reservation-api/internal/dto"
+	"room-reservation-api/internal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
-	// Update this path if your models package is elsewhere, e.g., "../models" or the correct module path
 )
 
-var (
-	ErrInvalidToken  = errors.New("invalid token")
-	ErrExpiredToken  = errors.New("token has expired")
-	ErrInvalidClaims = errors.New("invalid token claims")
-)
-
-// Claims represents JWT token claims
-type Claims struct {
+// JWTClaims represents the claims in JWT token
+type JWTClaims struct {
 	UserID uuid.UUID       `json:"user_id"`
 	Role   models.UserRole `json:"role"`
-	Email  string          `json:"email"`
 	jwt.RegisteredClaims
 }
 
 // GenerateJWT generates a new JWT token
 func GenerateJWT(userID uuid.UUID, role models.UserRole, secret string, expiry time.Duration) (string, error) {
-	now := time.Now()
-	claims := &Claims{
+	claims := JWTClaims{
 		UserID: userID,
 		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(expiry)),
-			IssuedAt:  jwt.NewNumericDate(now),
-			NotBefore: jwt.NewNumericDate(now),
-			Issuer:    "room-reservation-api",
-			Subject:   userID.String(),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(expiry)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			NotBefore: jwt.NewNumericDate(time.Now()),
 		},
 	}
 
@@ -44,51 +35,60 @@ func GenerateJWT(userID uuid.UUID, role models.UserRole, secret string, expiry t
 	return token.SignedString([]byte(secret))
 }
 
-// ValidateJWT validates and parses a JWT token
-func ValidateJWT(tokenString, secret string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenString, &Claims{}, func(token *jwt.Token) (interface{}, error) {
-		// Validate signing method
+// ValidateJWT validates and parses JWT token
+func ValidateJWT(tokenString, secret string) (*JWTClaims, error) {
+	token, err := jwt.ParseWithClaims(tokenString, &JWTClaims{}, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("invalid signing method")
+			return nil, dto.ErrInvalidToken
 		}
 		return []byte(secret), nil
 	})
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
-			return nil, ErrExpiredToken
+			return nil, dto.ErrTokenExpired
 		}
-		return nil, ErrInvalidToken
+		return nil, dto.ErrInvalidToken
 	}
 
-	claims, ok := token.Claims.(*Claims)
+	claims, ok := token.Claims.(*JWTClaims)
 	if !ok || !token.Valid {
-		return nil, ErrInvalidClaims
+		return nil, dto.ErrInvalidToken
 	}
 
 	return claims, nil
 }
 
-// ExtractTokenFromHeader extracts JWT token from Authorization header
-func ExtractTokenFromHeader(authHeader string) string {
-	const bearerPrefix = "Bearer "
-	if len(authHeader) > len(bearerPrefix) && authHeader[:len(bearerPrefix)] == bearerPrefix {
-		return authHeader[len(bearerPrefix):]
+// ExtractUserIDFromToken extracts user ID from JWT token without validation
+func ExtractUserIDFromToken(tokenString string) (uuid.UUID, error) {
+	token, _, err := new(jwt.Parser).ParseUnverified(tokenString, &JWTClaims{})
+	if err != nil {
+		return uuid.Nil, dto.ErrInvalidToken
 	}
-	return ""
+
+	claims, ok := token.Claims.(*JWTClaims)
+	if !ok {
+		return uuid.Nil, dto.ErrInvalidToken
+	}
+
+	return claims.UserID, nil
 }
 
-// GenerateRefreshToken generates a refresh token with longer expiry
-func GenerateRefreshToken(userID uuid.UUID, role models.UserRole, secret string) (string, error) {
-	return GenerateJWT(userID, role, secret, 7*24*time.Hour) // 7 days
-}
+// RefreshTokenIfNeeded checks if token needs refresh and returns new token if needed
+func RefreshTokenIfNeeded(tokenString, secret string, refreshThreshold time.Duration) (string, bool, error) {
+	claims, err := ValidateJWT(tokenString, secret)
+	if err != nil {
+		return "", false, err
+	}
 
-// IsTokenExpired checks if a token is expired
-func IsTokenExpired(claims *Claims) bool {
-	return time.Now().After(claims.ExpiresAt.Time)
-}
+	// Check if token is close to expiry
+	if time.Until(claims.ExpiresAt.Time) < refreshThreshold {
+		newToken, err := GenerateJWT(claims.UserID, claims.Role, secret, time.Hour*24*7)
+		if err != nil {
+			return "", false, err
+		}
+		return newToken, true, nil
+	}
 
-// GetTokenRemainingTime returns the remaining time until token expires
-func GetTokenRemainingTime(claims *Claims) time.Duration {
-	return time.Until(claims.ExpiresAt.Time)
+	return tokenString, false, nil
 }

@@ -10,214 +10,90 @@ import (
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
+	"room-reservation-api/internal/dto"
 	"room-reservation-api/internal/models"
+	"room-reservation-api/internal/repositories/interfaces"
 	"room-reservation-api/internal/utils"
 )
 
-var (
-	ErrInvalidCredentials = errors.New("invalid credentials")
-	ErrUserNotFound       = errors.New("user not found")
-	ErrUserExists         = errors.New("user already exists")
-	ErrUserInactive       = errors.New("user account is inactive")
-	ErrInvalidToken       = errors.New("invalid token")
-)
-
 type AuthService struct {
-	db        *gorm.DB
+	userRepo  interfaces.UserRepositoryInterface
 	jwtSecret string
 	jwtExpiry time.Duration
 }
 
-func NewAuthService(db *gorm.DB, jwtSecret string, jwtExpiry time.Duration) *AuthService {
+func NewAuthService(userRepo interfaces.UserRepositoryInterface, jwtSecret string, jwtExpiry time.Duration) *AuthService {
 	return &AuthService{
-		db:        db,
+		userRepo:  userRepo,
 		jwtSecret: jwtSecret,
 		jwtExpiry: jwtExpiry,
 	}
 }
 
-// LoginRequest represents login request payload
-type LoginRequest struct {
-	Email    string `json:"email" binding:"required,email" validate:"required,email"`
-	Password string `json:"password" binding:"required" validate:"required,min=8"`
-}
-
-// RegisterRequest represents registration request payload
-type RegisterRequest struct {
-	FirstName  string `json:"first_name" binding:"required" validate:"required,min=2,max=100"`
-	LastName   string `json:"last_name" binding:"required" validate:"required,min=2,max=100"`
-	Email      string `json:"email" binding:"required,email" validate:"required,email"`
-	Password   string `json:"password" binding:"required" validate:"required,min=8"`
-	Phone      string `json:"phone" validate:"omitempty,e164"`
-	Department string `json:"department" validate:"omitempty,max=100"`
-	Position   string `json:"position" validate:"omitempty,max=100"`
-}
-
-// AuthResponse represents authentication response
-type AuthResponse struct {
-	User         *models.User `json:"user"`
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-	TokenType    string       `json:"token_type"`
-	ExpiresAt    time.Time    `json:"expires_at"`
-}
-
-// Login authenticates a user and returns tokens
-func (s *AuthService) Login(req LoginRequest) (*AuthResponse, error) {
-	var user models.User
-	if err := s.db.Where("email = ?", req.Email).First(&user).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrInvalidCredentials
-		}
-		return nil, fmt.Errorf("database error: %w", err)
-	}
-
-	// Check if user is active
-	if !user.IsActive {
-		return nil, ErrUserInactive
-	}
-
-	// Verify password
-	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		return nil, ErrInvalidCredentials
-	}
-
-	// Update last login
-	now := time.Now()
-	user.LastLoginAt = &now
-	if err := s.db.Save(&user).Error; err != nil {
-		return nil, fmt.Errorf("failed to update last login: %w", err)
-	}
-
-	// Generate tokens
-	accessToken, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret, s.jwtExpiry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	refreshToken, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret, 7*24*time.Hour)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-	}
-
-	// Remove password hash from response
-	user.PasswordHash = ""
-
-	return &AuthResponse{
-		User:         &user,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    "Bearer",
-		ExpiresAt:    now.Add(s.jwtExpiry),
-	}, nil
-}
-
-// Register creates a new user account
-func (s *AuthService) Register(req RegisterRequest) (*models.User, error) {
+// CreateUser creates a new user account
+func (s *AuthService) CreateUser(user *models.User) error {
 	// Check if user already exists
-	var existingUser models.User
-	if err := s.db.Where("email = ?", req.Email).First(&existingUser).Error; err == nil {
-		return nil, ErrUserExists
-	}
-
-	// Hash password
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+	exists, err := s.userRepo.ExistsByEmail(user.Email)
 	if err != nil {
-		return nil, fmt.Errorf("failed to hash password: %w", err)
+		return fmt.Errorf("failed to check user existence: %w", err)
+	}
+	if exists {
+		return dto.ErrUserExists
 	}
 
 	// Create user
-	user := &models.User{
-		ID:           uuid.New(),
-		FirstName:    req.FirstName,
-		LastName:     req.LastName,
-		Email:        req.Email,
-		PasswordHash: string(hashedPassword),
-		Phone:        req.Phone,
-		Department:   req.Department,
-		Position:     req.Position,
-		Role:         models.RoleStandardUser,
-		IsActive:     true,
+	if err := s.userRepo.Create(user); err != nil {
+		return fmt.Errorf("failed to create user: %w", err)
 	}
 
-	if err := s.db.Create(user).Error; err != nil {
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Remove password hash from response
-	user.PasswordHash = ""
-
-	return user, nil
+	return nil
 }
 
-// RefreshToken generates new tokens using refresh token
-func (s *AuthService) RefreshToken(refreshToken string) (*AuthResponse, error) {
-	claims, err := utils.ValidateJWT(refreshToken, s.jwtSecret)
+// GetUserByEmail retrieves user by email
+func (s *AuthService) GetUserByEmail(email string) (*models.User, error) {
+	user, err := s.userRepo.GetByEmail(email)
 	if err != nil {
-		return nil, ErrInvalidToken
-	}
-
-	// Get user from database
-	var user models.User
-	if err := s.db.Where("id = ? AND is_active = ?", claims.UserID, true).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
+			return nil, dto.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("database error: %w", err)
+		return nil, fmt.Errorf("failed to get user by email: %w", err)
 	}
-
-	// Generate new tokens
-	now := time.Now()
-	accessToken, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret, s.jwtExpiry)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate access token: %w", err)
-	}
-
-	newRefreshToken, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret, 7*24*time.Hour)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
-	}
-
-	// Remove password hash from response
-	user.PasswordHash = ""
-
-	return &AuthResponse{
-		User:         &user,
-		AccessToken:  accessToken,
-		RefreshToken: newRefreshToken,
-		TokenType:    "Bearer",
-		ExpiresAt:    now.Add(s.jwtExpiry),
-	}, nil
+	return user, nil
 }
 
 // GetUserByID retrieves user by ID
 func (s *AuthService) GetUserByID(userID uuid.UUID) (*models.User, error) {
-	var user models.User
-	if err := s.db.Where("id = ? AND is_active = ?", userID, true).First(&user).Error; err != nil {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
+			return nil, dto.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("database error: %w", err)
+		return nil, fmt.Errorf("failed to get user by ID: %w", err)
 	}
+	return user, nil
+}
 
-	// Remove password hash
-	user.PasswordHash = ""
-	return &user, nil
+// UpdateUser updates user information
+func (s *AuthService) UpdateUser(user *models.User) error {
+	if err := s.userRepo.Update(user); err != nil {
+		return fmt.Errorf("failed to update user: %w", err)
+	}
+	return nil
 }
 
 // ChangePassword changes user password
 func (s *AuthService) ChangePassword(userID uuid.UUID, oldPassword, newPassword string) error {
-	var user models.User
-	if err := s.db.Where("id = ?", userID).First(&user).Error; err != nil {
+	user, err := s.userRepo.GetByID(userID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return ErrUserNotFound
+			return dto.ErrUserNotFound
 		}
-		return fmt.Errorf("database error: %w", err)
+		return fmt.Errorf("failed to get user: %w", err)
 	}
 
 	// Verify old password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(oldPassword)); err != nil {
-		return ErrInvalidCredentials
+		return dto.ErrInvalidCredentials
 	}
 
 	// Hash new password
@@ -227,23 +103,81 @@ func (s *AuthService) ChangePassword(userID uuid.UUID, oldPassword, newPassword 
 	}
 
 	// Update password
-	user.PasswordHash = string(hashedPassword)
-	if err := s.db.Save(&user).Error; err != nil {
+	if err := s.userRepo.UpdatePassword(userID, string(hashedPassword)); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
 	return nil
 }
 
+// ValidateUser validates user credentials and returns user if valid
+func (s *AuthService) ValidateUser(email, password string) (*models.User, error) {
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, dto.ErrInvalidCredentials
+		}
+		return nil, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		return nil, dto.ErrUserInactive
+	}
+
+	// Verify password
+	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)); err != nil {
+		return nil, dto.ErrInvalidCredentials
+	}
+
+	return user, nil
+}
+
+// RefreshToken generates new tokens using refresh token
+func (s *AuthService) RefreshToken(refreshToken string) (*models.User, string, error) {
+	claims, err := utils.ValidateJWT(refreshToken, s.jwtSecret)
+	if err != nil {
+		return nil, "", dto.ErrInvalidToken
+	}
+
+	// Get user from database
+	user, err := s.userRepo.GetByID(claims.UserID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, "", dto.ErrUserNotFound
+		}
+		return nil, "", fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		return nil, "", dto.ErrUserInactive
+	}
+
+	// Generate new access token
+	accessToken, err := utils.GenerateJWT(user.ID, user.Role, s.jwtSecret, s.jwtExpiry)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to generate access token: %w", err)
+	}
+
+	return user, accessToken, nil
+}
+
 // ResetPassword initiates password reset process
 func (s *AuthService) ResetPassword(email string) error {
-	var user models.User
-	if err := s.db.Where("email = ? AND is_active = ?", email, true).First(&user).Error; err != nil {
+	user, err := s.userRepo.GetByEmail(email)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Don't reveal if email exists or not
 			return nil
 		}
-		return fmt.Errorf("database error: %w", err)
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	// Check if user is active
+	if !user.IsActive {
+		// Don't reveal if user is inactive
+		return nil
 	}
 
 	// Generate reset token (valid for 1 hour)
@@ -264,20 +198,24 @@ func (s *AuthService) ResetPassword(email string) error {
 func (s *AuthService) ValidateResetToken(token string) (*models.User, error) {
 	claims, err := utils.ValidateJWT(token, s.jwtSecret)
 	if err != nil {
-		return nil, ErrInvalidToken
+		return nil, dto.ErrInvalidToken
 	}
 
 	// Get user from database
-	var user models.User
-	if err := s.db.Where("id = ? AND is_active = ?", claims.UserID, true).First(&user).Error; err != nil {
+	user, err := s.userRepo.GetByID(claims.UserID)
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrUserNotFound
+			return nil, dto.ErrUserNotFound
 		}
-		return nil, fmt.Errorf("database error: %w", err)
+		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
 
-	user.PasswordHash = ""
-	return &user, nil
+	// Check if user is active
+	if !user.IsActive {
+		return nil, dto.ErrUserInactive
+	}
+
+	return user, nil
 }
 
 // CompletePasswordReset completes password reset with new password
@@ -294,9 +232,147 @@ func (s *AuthService) CompletePasswordReset(token, newPassword string) error {
 	}
 
 	// Update password
-	if err := s.db.Model(&models.User{}).Where("id = ?", user.ID).Update("password_hash", string(hashedPassword)).Error; err != nil {
+	if err := s.userRepo.UpdatePassword(user.ID, string(hashedPassword)); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
 	return nil
+}
+
+// DeactivateUser deactivates a user account
+func (s *AuthService) DeactivateUser(userID uuid.UUID) error {
+	if err := s.userRepo.Deactivate(userID); err != nil {
+		return fmt.Errorf("failed to deactivate user: %w", err)
+	}
+	return nil
+}
+
+// ActivateUser activates a user account
+func (s *AuthService) ActivateUser(userID uuid.UUID) error {
+	if err := s.userRepo.Activate(userID); err != nil {
+		return fmt.Errorf("failed to activate user: %w", err)
+	}
+	return nil
+}
+
+// GetAllUsers retrieves all users (for admin purposes)
+func (s *AuthService) GetAllUsers(limit, offset int) ([]models.User, int64, error) {
+	users, total, err := s.userRepo.GetAll(limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get users: %w", err)
+	}
+	return users, total, nil
+}
+
+// UpdateUserRole updates user role (admin only)
+func (s *AuthService) UpdateUserRole(userID uuid.UUID, role models.UserRole) error {
+	if err := s.userRepo.UpdateRole(userID, role); err != nil {
+		return fmt.Errorf("failed to update user role: %w", err)
+	}
+	return nil
+}
+
+// DeleteUser soft deletes a user
+func (s *AuthService) DeleteUser(userID uuid.UUID) error {
+	if err := s.userRepo.Delete(userID); err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+	return nil
+}
+
+// GetUsersByRole retrieves users by role
+func (s *AuthService) GetUsersByRole(role models.UserRole) ([]models.User, error) {
+	users, err := s.userRepo.GetByRole(role)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users by role: %w", err)
+	}
+	return users, nil
+}
+
+// SearchUsers searches users by name or email
+func (s *AuthService) SearchUsers(query string, limit, offset int) ([]models.User, int64, error) {
+	users, total, err := s.userRepo.Search(query, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to search users: %w", err)
+	}
+	return users, total, nil
+}
+
+// GetActiveUsers retrieves only active users
+func (s *AuthService) GetActiveUsers(limit, offset int) ([]models.User, int64, error) {
+	users, total, err := s.userRepo.GetActiveUsers(limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get active users: %w", err)
+	}
+	return users, total, nil
+}
+
+// GetInactiveUsers retrieves only inactive users
+func (s *AuthService) GetInactiveUsers(limit, offset int) ([]models.User, int64, error) {
+	users, total, err := s.userRepo.GetInactiveUsers(limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get inactive users: %w", err)
+	}
+	return users, total, nil
+}
+
+// GetUsersByDepartment retrieves users by department
+func (s *AuthService) GetUsersByDepartment(department string) ([]models.User, error) {
+	users, err := s.userRepo.GetUsersByDepartment(department)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get users by department: %w", err)
+	}
+	return users, nil
+}
+
+// GetRecentUsers retrieves users created in the last N days
+func (s *AuthService) GetRecentUsers(days int, limit, offset int) ([]models.User, int64, error) {
+	users, total, err := s.userRepo.GetRecentUsers(days, limit, offset)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to get recent users: %w", err)
+	}
+	return users, total, nil
+}
+
+// GetUserStats returns user statistics
+func (s *AuthService) GetUserStats() (map[string]int64, error) {
+	stats := make(map[string]int64)
+
+	total, err := s.userRepo.CountTotal()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count total users: %w", err)
+	}
+	stats["total"] = total
+
+	active, err := s.userRepo.CountActiveUsers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count active users: %w", err)
+	}
+	stats["active"] = active
+
+	inactive, err := s.userRepo.CountInactiveUsers()
+	if err != nil {
+		return nil, fmt.Errorf("failed to count inactive users: %w", err)
+	}
+	stats["inactive"] = inactive
+
+	admins, err := s.userRepo.CountByRole(models.RoleAdmin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count admin users: %w", err)
+	}
+	stats["admins"] = admins
+
+	managers, err := s.userRepo.CountByRole(models.RoleManager)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count manager users: %w", err)
+	}
+	stats["managers"] = managers
+
+	users, err := s.userRepo.CountByRole(models.RoleStandardUser)
+	if err != nil {
+		return nil, fmt.Errorf("failed to count standard users: %w", err)
+	}
+	stats["users"] = users
+
+	return stats, nil
 }

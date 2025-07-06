@@ -1,4 +1,3 @@
-// internal/database/connection.go
 package database
 
 import (
