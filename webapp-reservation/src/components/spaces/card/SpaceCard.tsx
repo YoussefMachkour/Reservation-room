@@ -6,7 +6,7 @@ import { MapPin, Users, Clock, Calendar } from 'lucide-react';
 
 interface SpaceCardProps {
   space: Space;
-  onBookNow: (space: Space) => void;
+  onBookNow?: (space: Space) => void; // Made optional since we'll use navigation
 }
 
 export const SpaceCard: React.FC<SpaceCardProps> = ({ space, onBookNow }) => {
@@ -20,11 +20,11 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({ space, onBookNow }) => {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'available': return 'bg-green-100 text-green-800';
-      case 'maintenance': return 'bg-yellow-100 text-yellow-800';
-      case 'out_of_service': return 'bg-red-100 text-red-800';
-      case 'reserved': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case 'available': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200';
+      case 'maintenance': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200';
+      case 'out_of_service': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200';
+      case 'reserved': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200';
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
     }
   };
 
@@ -32,11 +32,21 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({ space, onBookNow }) => {
     navigate(`/spaces/${space.id}`);
   };
 
+  const handleBookNow = () => {
+    if (onBookNow) {
+      // If parent component provided a custom handler, use it
+      onBookNow(space);
+    } else {
+      // Otherwise, navigate to the booking page
+      navigate(`/bookings/${space.id}`);
+    }
+  };
+
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200">
       {/* Image */}
       <div className="relative h-48 bg-gray-200 cursor-pointer" onClick={handleViewDetails}>
-        {space.photos.length > 0 ? (
+        {space.photos && space.photos.length > 0 ? (
           <img 
             src={space.photos[0]} 
             alt={space.name}
@@ -86,20 +96,22 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({ space, onBookNow }) => {
         </div>
 
         {/* Equipment Preview */}
-        <div className="mb-4">
-          <div className="flex flex-wrap gap-1">
-            {space.equipment.slice(0, 3).map((eq, index) => (
-              <span key={index} className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full text-xs">
-                {eq.name}
-              </span>
-            ))}
-            {space.equipment.length > 3 && (
-              <span className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full text-xs">
-                +{space.equipment.length - 3} more
-              </span>
-            )}
+        {space.equipment && space.equipment.length > 0 && (
+          <div className="mb-4">
+            <div className="flex flex-wrap gap-1">
+              {space.equipment.slice(0, 3).map((eq, index) => (
+                <span key={index} className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full text-xs">
+                  {eq.name}
+                </span>
+              ))}
+              {space.equipment.length > 3 && (
+                <span className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded-full text-xs">
+                  +{space.equipment.length - 3} more
+                </span>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-4 line-clamp-2">
           {space.description}
@@ -114,7 +126,7 @@ export const SpaceCard: React.FC<SpaceCardProps> = ({ space, onBookNow }) => {
             View Details
           </button>
           <button
-            onClick={() => onBookNow(space)}
+            onClick={handleBookNow}
             disabled={space.status !== 'available'}
             className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
           >

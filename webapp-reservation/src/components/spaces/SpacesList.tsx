@@ -1,20 +1,22 @@
 // components/spaces/SpacesList.tsx - Updated version
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Space, SpaceFilters } from '../../types/space';
 import { SpaceCard } from './card/SpaceCard';
 import { SpaceFiltersComponent } from './filter/SpaceFilters';
-import { Search, Grid, List } from 'lucide-react';
+import { Search, Grid, List, MapPin, Users, Clock, Calendar } from 'lucide-react';
 
 interface SpacesListProps {
   spaces: Space[];
   buildings: string[];
-  onBookSpace: (space: Space) => void;
+  onBookSpace?: (space: Space) => void; // Made optional since we'll use navigation
 }
 
 export const SpacesList: React.FC<SpacesListProps> = ({ spaces, buildings, onBookSpace }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filters, setFilters] = useState<SpaceFilters>({});
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const navigate = useNavigate();
 
   const filteredSpaces = spaces.filter(space => {
     // Search filter
@@ -40,6 +42,16 @@ export const SpacesList: React.FC<SpacesListProps> = ({ spaces, buildings, onBoo
   const handleClearFilters = () => {
     setFilters({});
     setSearchTerm('');
+  };
+
+  const handleBookNow = (space: Space) => {
+    if (onBookSpace) {
+      // If parent component provided a custom handler, use it
+      onBookSpace(space);
+    } else {
+      // Otherwise, navigate to the booking page
+      navigate(`/bookings/${space.id}`);
+    }
   };
 
   return (
@@ -140,7 +152,7 @@ export const SpacesList: React.FC<SpacesListProps> = ({ spaces, buildings, onBoo
                 <SpaceCard
                   key={space.id}
                   space={space}
-                  onBookNow={onBookSpace}
+                  onBookNow={handleBookNow}
                 />
               ))}
             </div>
@@ -150,7 +162,7 @@ export const SpacesList: React.FC<SpacesListProps> = ({ spaces, buildings, onBoo
                 <SpaceListItem
                   key={space.id}
                   space={space}
-                  onBookNow={onBookSpace}
+                  onBookNow={handleBookNow}
                 />
               ))}
             </div>
@@ -195,7 +207,7 @@ const SpaceListItem: React.FC<SpaceListItemProps> = ({ space, onBookNow }) => {
       <div className="flex">
         {/* Image */}
         <div className="w-48 h-32 bg-gray-200 flex-shrink-0 cursor-pointer" onClick={handleViewDetails}>
-          {space.photos.length > 0 ? (
+          {space.photos && space.photos.length > 0 ? (
             <img 
               src={space.photos[0]} 
               alt={space.name}
@@ -272,7 +284,3 @@ const SpaceListItem: React.FC<SpaceListItemProps> = ({ space, onBookNow }) => {
     </div>
   );
 };
-
-// Don't forget to add this import at the top
-import { useNavigate } from 'react-router-dom';
-import { MapPin, Users, Clock, Calendar } from 'lucide-react';

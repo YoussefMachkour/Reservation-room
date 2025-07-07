@@ -14,7 +14,8 @@ import { RegisterPage } from './pages/auth/RegisterPage';
 import { SpaceDetailsPage } from './pages/spaces/SpaceDetails';
 import Dashboard from './pages/dashboard/Dashboard';
 import { SpacesPage } from './pages/spaces/Spaces';
-// import { BookingsPage } from './pages/bookings/BookingsPage';
+import { Bookings } from './pages/bookings/Bookings';
+import { SpaceBooking } from './pages/bookings/SpaceBooking';
 // import { ProfilePage } from './pages/profile/ProfilePage';
 
 // // Admin Pages
@@ -102,7 +103,8 @@ export const AppRouter: React.FC = () => {
         <Route path="spaces/:id" element={<SpaceDetailsPage />} />
 
         {/* Bookings */}
-        {/* <Route path="bookings" element={<BookingsPage />} /> */}
+        <Route path="bookings" element={<Bookings />} />
+        <Route path="bookings" element={<SpaceBooking />} />
 
         {/* Profile */}
         {/* <Route path="profile" element={<ProfilePage />} /> */}
