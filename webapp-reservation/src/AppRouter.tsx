@@ -11,9 +11,9 @@ import { LoginPage } from './pages/auth/LoginPage';
 import { RegisterPage } from './pages/auth/RegisterPage';
 
 // Main Pages
-// import { DashboardPage } from './pages/dashboard/DashboardPage';
-import { SpacesPage } from './pages/spaces/spaces';
 import { SpaceDetailsPage } from './pages/spaces/SpaceDetails';
+import Dashboard from './pages/dashboard/Dashboard';
+import { SpacesPage } from './pages/spaces/Spaces';
 // import { BookingsPage } from './pages/bookings/BookingsPage';
 // import { ProfilePage } from './pages/profile/ProfilePage';
 
@@ -94,8 +94,8 @@ export const AppRouter: React.FC = () => {
         }
       >
         {/* Dashboard */}
-        {/* <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} /> */}
+        <Route index element={<Navigate to="/dashboard" replace />} />
+        <Route path="dashboard" element={<Dashboard />} />
 
         {/* Spaces */}
         <Route path="spaces" element={<SpacesPage />} />
