@@ -1,66 +1,68 @@
-// frontend/src/contexts/AuthContext.js
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import apiService from '../services/api';
+// src/contexts/AuthContext.js
+import React, { createContext, useContext, useState } from 'react';
+
+// Mock API Service (replace with real API in production)
+const mockApiService = {
+  async login(email, password) {
+    // Simulate API delay
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    if (email && password) {
+      return {
+        success: true,
+        data: {
+          user: {
+            id: 1,
+            name: 'John Doe',
+            email: email,
+            role: 'user'
+          },
+          access_token: 'mock-token-123'
+        }
+      };
+    }
+    return { success: false, message: 'Invalid credentials' };
+  },
+
+  async register(name, email, password) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    if (name && email && password) {
+      return {
+        success: true,
+        data: {
+          user: {
+            id: 1,
+            name: name,
+            email: email,
+            role: 'user'
+          },
+          access_token: 'mock-token-123'
+        }
+      };
+    }
+    return { success: false, message: 'Registration failed' };
+  },
+
+  async logout() {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    return { success: true };
+  }
+};
 
 const AuthContext = createContext();
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
-
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Initialize auth state on app load
-  useEffect(() => {
-    const initializeAuth = async () => {
-      try {
-        const token = localStorage.getItem('access_token');
-        const savedUser = localStorage.getItem('user');
-
-        if (token && savedUser) {
-          // Verify token is still valid by fetching user profile
-          const response = await apiService.getProfile();
-          
-          if (response.success) {
-            setUser(response.data);
-            // Update stored user data if it changed
-            localStorage.setItem('user', JSON.stringify(response.data));
-          } else {
-            // Token is invalid, clear storage
-            clearAuthData();
-          }
-        }
-      } catch (error) {
-        console.error('Auth initialization failed:', error);
-        clearAuthData();
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializeAuth();
-  }, []);
-
-  const clearAuthData = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    localStorage.removeItem('user');
-    setUser(null);
-  };
 
   const login = async (email, password) => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await apiService.login(email, password);
+      const response = await mockApiService.login(email, password);
       
       if (response.success) {
         setUser(response.data.user);
@@ -78,16 +80,15 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const signup = async (userData) => {
+  const register = async (name, email, password) => {
     try {
       setLoading(true);
       setError(null);
 
-      const response = await apiService.register(userData);
+      const response = await mockApiService.register(name, email, password);
       
       if (response.success) {
-        // After successful signup, you might want to auto-login
-        // or just return success for manual login
+        setUser(response.data.user);
         return { success: true, data: response.data };
       } else {
         setError(response.message);
@@ -105,56 +106,23 @@ export const AuthProvider = ({ children }) => {
   const logout = async () => {
     try {
       setLoading(true);
-      await apiService.logout();
+      await mockApiService.logout();
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      clearAuthData();
+      setUser(null);
       setLoading(false);
     }
   };
-
-  const updateUser = (updatedUser) => {
-    setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
-  };
-
-  const refreshUserData = async () => {
-    try {
-      const response = await apiService.getProfile();
-      if (response.success) {
-        setUser(response.data);
-        localStorage.setItem('user', JSON.stringify(response.data));
-        return response.data;
-      }
-    } catch (error) {
-      console.error('Failed to refresh user data:', error);
-    }
-    return null;
-  };
-
-  // Utility functions
-  const isAuthenticated = () => !!user;
-  const isAdmin = () => user?.role === 'admin';
-  const isManager = () => user?.role === 'manager' || user?.role === 'admin';
-  const hasRole = (role) => user?.role === role;
 
   const value = {
     user,
     loading,
     error,
     login,
-    signup,
+    register,
     logout,
-    updateUser,
-    refreshUserData,
     clearError: () => setError(null),
-    
-    // Utility functions
-    isAuthenticated,
-    isAdmin,
-    isManager,
-    hasRole,
   };
 
   return (
@@ -162,4 +130,12 @@ export const AuthProvider = ({ children }) => {
       {children}
     </AuthContext.Provider>
   );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
 };
