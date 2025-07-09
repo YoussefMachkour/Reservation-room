@@ -2,9 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
   Calendar, 
   Clock, 
-  MapPin, 
-  User, 
-  TrendingUp, 
   Star, 
   DollarSign, 
   CalendarDays,
@@ -13,7 +10,6 @@ import {
   AlertCircle,
   ArrowRight,
   Building,
-  Users,
   Heart,
   Plus
 } from 'lucide-react';

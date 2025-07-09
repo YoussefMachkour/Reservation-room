@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { toast } from "sonner";
 import {
   Calendar,
   Users,
@@ -19,8 +17,63 @@ import {
 } from "lucide-react";
 
 export function Dashboard() {
-  const navigate = useNavigate();
   const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Types for chart data
+  interface ChartDataPoint {
+    day: string;
+    value: number;
+  }
+
+  interface RevenueChartProps {
+    data: ChartDataPoint[];
+  }
+
+  // Custom chart component for revenue
+  const RevenueChart = ({ data }: RevenueChartProps) => {
+    const maxValue = Math.max(...data.map((d: ChartDataPoint) => d.value));
+    const minValue = Math.min(...data.map((d: ChartDataPoint) => d.value));
+    const range = maxValue - minValue;
+    
+    const points = data.map((d: ChartDataPoint, i: number) => {
+      const x = (i / (data.length - 1)) * 100;
+      const y = 100 - ((d.value - minValue) / range) * 100;
+      return `${x},${y}`;
+    }).join(' ');
+    
+    return (
+      <div className="w-full h-8 relative">
+        <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <polyline
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="3"
+            points={points}
+            vectorEffect="non-scaling-stroke"
+          />
+          {data.map((d: ChartDataPoint, i: number) => {
+            const x = (i / (data.length - 1)) * 100;
+            const y = 100 - ((d.value - minValue) / range) * 100;
+            return (
+              <circle
+                key={i}
+                cx={x}
+                cy={y}
+                r="1.5"
+                fill="#10b981"
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          })}
+        </svg>
+      </div>
+    );
+  };
+
+  // Mock navigation function
+  const navigate = (path: string): void => {
+    alert(`Navigating to ${path}`);
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -63,6 +116,15 @@ export function Dashboard() {
       color: "text-emerald-600",
       trend: "up",
       data: [12000, 13500, 15000, 16200, 17500, 18200, 18750],
+      chartData: [
+        { day: "Mon", value: 12000 },
+        { day: "Tue", value: 13500 },
+        { day: "Wed", value: 15000 },
+        { day: "Thu", value: 16200 },
+        { day: "Fri", value: 17500 },
+        { day: "Sat", value: 18200 },
+        { day: "Sun", value: 18750 },
+      ],
     },
   ];
 
@@ -73,7 +135,6 @@ export function Dashboard() {
       description: "Add a new workspace",
       action: () => {
         navigate("/spaces");
-        toast.success("Navigating to Spaces page");
       },
       color: "bg-blue-50 hover:bg-blue-100 text-blue-700",
     },
@@ -83,7 +144,6 @@ export function Dashboard() {
       description: "Book a space",
       action: () => {
         navigate("/reservations");
-        toast.success("Navigating to Reservations page");
       },
       color: "bg-green-50 hover:bg-green-100 text-green-700",
     },
@@ -93,7 +153,6 @@ export function Dashboard() {
       description: "Register new member",
       action: () => {
         navigate("/members");
-        toast.success("Navigating to Members page");
       },
       color: "bg-purple-50 hover:bg-purple-100 text-purple-700",
     },
@@ -103,7 +162,6 @@ export function Dashboard() {
       description: "Contact members",
       action: () => {
         navigate("/messages");
-        toast.success("Navigating to Messages page");
       },
       color: "bg-orange-50 hover:bg-orange-100 text-orange-700",
     },
@@ -249,19 +307,25 @@ export function Dashboard() {
                   />
                   {stat.change}
                 </div>
-                {/* Mini chart simulation */}
-                <div className="mt-2 flex items-end space-x-1 h-6">
-                  {stat.data.map((value, i) => (
-                    <div
-                      key={i}
-                      className={`w-2 bg-${
-                        stat.color.split("-")[1]
-                      }-200 rounded-sm`}
-                      style={{
-                        height: `${(value / Math.max(...stat.data)) * 100}%`,
-                      }}
-                    />
-                  ))}
+                {/* Chart for Revenue, mini bars for others */}
+                <div className="mt-2 h-8">
+                  {stat.title === "Revenue" ? (
+                    <RevenueChart data={stat.chartData || []} />
+                  ) : (
+                    <div className="flex items-end space-x-1 h-6">
+                      {(stat.data as number[]).map((value, i) => (
+                        <div
+                          key={i}
+                          className={`w-2 bg-${
+                            stat.color.split("-")[1]
+                          }-200 rounded-sm`}
+                          style={{
+                            height: `${(value / Math.max(...(stat.data as number[]))) * 100}%`,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>

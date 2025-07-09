@@ -780,15 +780,16 @@ export function Spaces() {
                     <span>{space.images.length} image{space.images.length > 1 ? 's' : ''}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    {space.images.slice(0, 3).map((image, index) => (
+                    {space.images.slice(0, 3).map((image: string, index: number) => (
                       <img
                         key={index}
                         src={image}
                         alt={`${space.name} image ${index + 1}`}
                         className="w-full h-16 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
                         onClick={() => {
-                          // You can add a modal or lightbox here to view full image
-                          window.open(image, '_blank')
+                          if (typeof image === 'string') {
+                            window.open(image, '_blank')
+                          }
                         }}
                       />
                     ))}

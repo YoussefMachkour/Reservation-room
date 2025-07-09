@@ -40,8 +40,8 @@ export interface Space {
   status: 'Available' | 'Occupied' | 'Disabled'
   amenities: string[]
   description?: string
-  image?: string
   createdAt: string
+  images?: string[] // Change from 'image' to 'images'
 }
 
 // Reservation types

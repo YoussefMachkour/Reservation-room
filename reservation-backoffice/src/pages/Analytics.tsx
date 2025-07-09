@@ -13,7 +13,6 @@ import {
   Clock,
   Building2,
   BarChart3,
-  PieChart,
   Download,
   Filter,
   Eye,
@@ -25,6 +24,203 @@ import {
 export function Analytics() {
   const [dateRange, setDateRange] = useState('30d')
   const [selectedMetric, setSelectedMetric] = useState('revenue')
+
+  // Types for chart data
+  interface RevenueDataPoint {
+    month: string;
+    revenue: number;
+    bookings: number;
+    members: number;
+  }
+
+  interface RevenueChartProps {
+    data: RevenueDataPoint[];
+  }
+
+  // Pie Chart Component
+  interface PieChartData {
+    label: string;
+    value: number;
+    color: string;
+    percentage: number;
+  }
+
+  interface PieChartProps {
+    data: PieChartData[];
+    size?: number;
+  }
+
+  const CustomPieChart = ({ data, size = 200 }: PieChartProps) => {
+    const radius = size / 2 - 20;
+    const centerX = size / 2;
+    const centerY = size / 2;
+    
+    let cumulativeAngle = 0;
+    const total = data.reduce((sum, item) => sum + item.value, 0);
+    
+    const createPath = (startAngle: number, endAngle: number) => {
+      const start = polarToCartesian(centerX, centerY, radius, endAngle);
+      const end = polarToCartesian(centerX, centerY, radius, startAngle);
+      const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+      
+      return [
+        "M", centerX, centerY,
+        "L", start.x, start.y,
+        "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y,
+        "Z"
+      ].join(" ");
+    };
+    
+    const polarToCartesian = (centerX: number, centerY: number, radius: number, angleInDegrees: number) => {
+      const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+      return {
+        x: centerX + (radius * Math.cos(angleInRadians)),
+        y: centerY + (radius * Math.sin(angleInRadians))
+      };
+    };
+    
+    return (
+      <div className="flex flex-col items-center">
+        <svg width={size} height={size} className="drop-shadow-sm">
+          {data.map((segment, index) => {
+            const angle = (segment.value / total) * 360;
+            const path = createPath(cumulativeAngle, cumulativeAngle + angle);
+            const result = (
+              <path
+                key={index}
+                d={path}
+                fill={segment.color}
+                stroke="white"
+                strokeWidth="2"
+                className="hover:opacity-80 transition-opacity cursor-pointer"
+              />
+            );
+            cumulativeAngle += angle;
+            return result;
+          })}
+          
+          {/* Center circle for donut effect */}
+          <circle
+            cx={centerX}
+            cy={centerY}
+            r={radius * 0.4}
+            fill="white"
+            stroke="#f1f5f9"
+            strokeWidth="1"
+          />
+          
+          {/* Center text */}
+          <text
+            x={centerX}
+            y={centerY - 5}
+            textAnchor="middle"
+            className="text-sm font-semibold fill-gray-700"
+          >
+            Total
+          </text>
+          <text
+            x={centerX}
+            y={centerY + 15}
+            textAnchor="middle"
+            className="text-xs fill-gray-500"
+          >
+            {total.toLocaleString()}
+          </text>
+        </svg>
+      </div>
+    );
+  };
+
+  // Custom Revenue Chart Component
+  const RevenueChart = ({ data }: RevenueChartProps) => {
+    const maxRevenue = Math.max(...data.map(d => d.revenue));
+    const minRevenue = Math.min(...data.map(d => d.revenue));
+    const range = maxRevenue - minRevenue;
+    
+    const points = data.map((d, i) => {
+      const x = (i / (data.length - 1)) * 100;
+      const y = 100 - ((d.revenue - minRevenue) / range) * 80; // Use 80% of height for padding
+      return `${x},${y}`;
+    }).join(' ');
+    
+    return (
+      <div className="h-[250px] w-full relative p-4">
+        <svg className="w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+          {/* Grid lines */}
+          <defs>
+            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#f1f5f9" strokeWidth="0.5"/>
+            </pattern>
+          </defs>
+          <rect width="100" height="100" fill="url(#grid)" />
+          
+          {/* Area under the curve */}
+          <polygon
+            fill="url(#gradient)"
+            points={`0,100 ${points} 100,100`}
+            opacity="0.3"
+          />
+          
+          {/* Main line */}
+          <polyline
+            fill="none"
+            stroke="#10b981"
+            strokeWidth="2"
+            points={points}
+            vectorEffect="non-scaling-stroke"
+          />
+          
+          {/* Data points */}
+          {data.map((d, i) => {
+            const x = (i / (data.length - 1)) * 100;
+            const y = 100 - ((d.revenue - minRevenue) / range) * 80;
+            return (
+              <g key={i}>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="2"
+                  fill="#10b981"
+                  vectorEffect="non-scaling-stroke"
+                />
+                <circle
+                  cx={x}
+                  cy={y}
+                  r="4"
+                  fill="transparent"
+                  stroke="#10b981"
+                  strokeWidth="1"
+                  vectorEffect="non-scaling-stroke"
+                />
+              </g>
+            );
+          })}
+          
+          {/* Gradient definition */}
+          <defs>
+            <linearGradient id="gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <stop offset="0%" stopColor="#10b981" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#10b981" stopOpacity="0.1" />
+            </linearGradient>
+          </defs>
+        </svg>
+        
+        {/* X-axis labels */}
+        <div className="absolute bottom-0 left-0 right-0 flex justify-between px-4 text-xs text-muted-foreground">
+          {data.map((d, i) => (
+            <span key={i} className="text-center">{d.month}</span>
+          ))}
+        </div>
+        
+        {/* Y-axis labels */}
+        <div className="absolute left-0 top-0 bottom-8 flex flex-col justify-between text-xs text-muted-foreground">
+          <span>${(maxRevenue / 1000).toFixed(0)}k</span>
+          <span>${((maxRevenue + minRevenue) / 2000).toFixed(0)}k</span>
+          <span>${(minRevenue / 1000).toFixed(0)}k</span>
+        </div>
+      </div>
+    );
+  };
 
   // Comprehensive analytics data
   const stats = {
@@ -68,6 +264,20 @@ export function Analytics() {
     { type: 'Premium', count: 67, percentage: 35, revenue: 20100 },
     { type: 'Enterprise', count: 33, percentage: 18, revenue: 14470 }
   ]
+
+  // Data for pie charts
+  const membershipPieData: PieChartData[] = [
+    { label: 'Enterprise', value: 14470, color: '#8b5cf6', percentage: 32 },
+    { label: 'Premium', value: 20100, color: '#3b82f6', percentage: 44 },
+    { label: 'Basic', value: 10680, color: '#6b7280', percentage: 24 }
+  ];
+
+  const trendsPieData: PieChartData[] = [
+    { label: 'Meeting Rooms', value: 15, color: '#10b981', percentage: 25 },
+    { label: 'Hot Desk', value: 22, color: '#3b82f6', percentage: 37 },
+    { label: 'Premium Growth', value: 18, color: '#f59e0b', percentage: 30 },
+    { label: 'Weekend Usage', value: 8, color: '#8b5cf6', percentage: 13 }
+  ];
 
   const peakHoursData = [
     { hour: '8AM', occupancy: 25, bookings: 12 },
@@ -113,8 +323,73 @@ export function Analytics() {
   }
 
   const exportData = (type: string) => {
-    // Simulate export functionality
-    alert(`Exporting ${type} data... (This would download a ${type.toUpperCase()} file in a real application)`)
+    // Convert data to CSV format
+    if (type === 'csv') {
+      const csvData = [
+        ['Month', 'Revenue', 'Bookings', 'Members'],
+        ...revenueData.map(d => [d.month, d.revenue, d.bookings, d.members])
+      ];
+      
+      const csvContent = csvData.map(row => row.join(',')).join('\n');
+      const blob = new Blob([csvContent], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      alert('CSV file downloaded successfully!');
+    } else {
+      // For PDF, you would typically use a library like jsPDF
+      alert(`PDF export would require a PDF library like jsPDF. For now, showing mock functionality.`);
+    }
+  }
+
+  const handleQuickAction = (action: string) => {
+    switch (action) {
+      case 'detailed-reports':
+        // In a real app, this would navigate to a detailed reports page
+        alert('Opening detailed reports view... (would navigate to /analytics/detailed)');
+        break;
+      case 'custom-filter':
+        // This would open a filter modal or sidebar
+        alert('Opening custom filter dialog... (would show filter options)');
+        break;
+      case 'schedule-report':
+        // This would open a scheduling modal
+        alert('Opening report scheduler... (would show scheduling options)');
+        break;
+      case 'export-all':
+        // This would export all data
+        const allData = {
+          revenue: revenueData,
+          spaces: spaceUtilization,
+          members: topMembers,
+          membership: membershipDistribution,
+          peakHours: peakHoursData
+        };
+        
+        const jsonContent = JSON.stringify(allData, null, 2);
+        const blob = new Blob([jsonContent], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `complete-analytics-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        alert('Complete analytics data exported as JSON!');
+        break;
+      default:
+        alert(`Action "${action}" triggered!`);
+    }
   }
 
   return (
@@ -252,14 +527,15 @@ export function Analytics() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="h-[300px] flex items-center justify-center bg-muted/20 rounded-lg">
-                  <div className="text-center">
-                    <BarChart3 className="mx-auto h-12 w-12 text-muted-foreground" />
-                    <p className="mt-2 text-sm text-muted-foreground">Revenue Chart</p>
-                    <p className="text-xs text-muted-foreground">
-                      {revenueData.map(d => `${d.month}: ${formatCurrency(d.revenue)}`).join(' • ')}
-                    </p>
-                  </div>
+                <RevenueChart data={revenueData} />
+                <div className="mt-4 grid grid-cols-5 gap-2 text-xs text-center">
+                  {revenueData.map((d, i) => (
+                    <div key={i} className="space-y-1">
+                      <div className="font-medium">{d.month}</div>
+                      <div className="text-green-600">{formatCurrency(d.revenue)}</div>
+                      <div className="text-muted-foreground">{d.bookings} bookings</div>
+                    </div>
+                  ))}
                 </div>
               </CardContent>
             </Card>
@@ -267,27 +543,30 @@ export function Analytics() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center">
-                  <PieChart className="mr-2 h-5 w-5" />
+                  <BarChart3 className="mr-2 h-5 w-5" />
                   Revenue by Membership Type
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  {membershipDistribution.map((membership) => (
-                    <div key={membership.type} className="flex items-center justify-between">
-                      <div className="flex items-center space-x-3">
-                        <div className={`w-3 h-3 rounded-full ${
-                          membership.type === 'Enterprise' ? 'bg-purple-500' :
-                          membership.type === 'Premium' ? 'bg-blue-500' : 'bg-gray-500'
-                        }`}></div>
-                        <span className="font-medium">{membership.type}</span>
+                <div className="flex flex-col items-center space-y-4">
+                  <CustomPieChart data={membershipPieData} size={220} />
+                  <div className="space-y-3 w-full">
+                    {membershipPieData.map((membership) => (
+                      <div key={membership.label} className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <div 
+                            className="w-3 h-3 rounded-full" 
+                            style={{ backgroundColor: membership.color }}
+                          ></div>
+                          <span className="font-medium">{membership.label}</span>
+                        </div>
+                        <div className="text-right">
+                          <div className="font-medium">{formatCurrency(membership.value)}</div>
+                          <div className="text-sm text-muted-foreground">{membership.percentage}%</div>
+                        </div>
                       </div>
-                      <div className="text-right">
-                        <div className="font-medium">{formatCurrency(membership.revenue)}</div>
-                        <div className="text-sm text-muted-foreground">{membership.percentage}%</div>
-                      </div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -456,22 +735,30 @@ export function Analytics() {
               Recent Trends
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-              <span className="text-sm">Meeting rooms showing 15% increase</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-              <span className="text-sm">Hot desk bookings up 22% this month</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-              <span className="text-sm">Premium memberships growing fastest</span>
-            </div>
-            <div className="flex items-center space-x-3">
-              <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-              <span className="text-sm">Weekend usage increased 8%</span>
+          <CardContent>
+            <div className="flex flex-col items-center space-y-4">
+              <CustomPieChart data={trendsPieData} size={200} />
+              <div className="space-y-3 w-full">
+                {trendsPieData.map((trend) => (
+                  <div key={trend.label} className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div 
+                        className="w-2 h-2 rounded-full" 
+                        style={{ backgroundColor: trend.color }}
+                      ></div>
+                      <span className="text-sm">
+                        {trend.label} {trend.label === 'Meeting Rooms' ? 'showing 15% increase' :
+                         trend.label === 'Hot Desk' ? 'bookings up 22% this month' :
+                         trend.label === 'Premium Growth' ? 'memberships growing fastest' :
+                         'usage increased 8%'}
+                      </span>
+                    </div>
+                    <div className="text-sm font-medium">
+                      +{trend.value}%
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -484,19 +771,35 @@ export function Analytics() {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={() => handleQuickAction('detailed-reports')}
+            >
               <Eye className="mr-2 h-4 w-4" />
               View Detailed Reports
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={() => handleQuickAction('custom-filter')}
+            >
               <Filter className="mr-2 h-4 w-4" />
               Create Custom Filter
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={() => handleQuickAction('schedule-report')}
+            >
               <Calendar className="mr-2 h-4 w-4" />
               Schedule Report
             </Button>
-            <Button variant="outline" className="w-full justify-start">
+            <Button 
+              variant="outline" 
+              className="w-full justify-start"
+              onClick={() => handleQuickAction('export-all')}
+            >
               <Download className="mr-2 h-4 w-4" />
               Export All Data
             </Button>
