@@ -27,7 +27,9 @@ import {
   Shield,
   Zap,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Upload,
+  X
 } from 'lucide-react'
 import type { Space } from '@/types'
 
@@ -43,7 +45,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['Projector', 'Whiteboard', 'Video Conferencing', 'WiFi'],
       description: 'Perfect for team meetings and presentations with state-of-the-art AV equipment',
-      createdAt: '2024-01-15T10:00:00Z'
+      createdAt: '2024-01-15T10:00:00Z',
+      images: [] // Add images array to existing spaces
     },
     {
       id: '2',
@@ -55,7 +58,8 @@ export function Spaces() {
       status: 'Occupied',
       amenities: ['Desk', 'Chair', 'Storage', 'WiFi', 'Phone Line'],
       description: 'Quiet private office space ideal for focused work',
-      createdAt: '2024-01-15T10:00:00Z'
+      createdAt: '2024-01-15T10:00:00Z',
+      images: []
     },
     {
       id: '3',
@@ -67,7 +71,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['Desk', 'Chair', 'WiFi', 'Power Outlets', 'Coffee Station'],
       description: 'Flexible hot desk workspace in a collaborative environment',
-      createdAt: '2024-01-15T10:00:00Z'
+      createdAt: '2024-01-15T10:00:00Z',
+      images: []
     },
     {
       id: '4',
@@ -79,7 +84,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['Large Screen', 'Surround Sound', 'Video Conferencing', 'WiFi', 'Catering Setup'],
       description: 'Large conference room perfect for board meetings and presentations',
-      createdAt: '2024-01-16T10:00:00Z'
+      createdAt: '2024-01-16T10:00:00Z',
+      images: []
     },
     {
       id: '5',
@@ -91,7 +97,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['Art Supplies', 'Easels', 'Natural Light', 'WiFi', 'Storage Lockers'],
       description: 'Inspiring creative workspace with artistic amenities',
-      createdAt: '2024-01-17T10:00:00Z'
+      createdAt: '2024-01-17T10:00:00Z',
+      images: []
     },
     {
       id: '6',
@@ -103,7 +110,8 @@ export function Spaces() {
       status: 'Disabled',
       amenities: ['Executive Desk', 'Meeting Table', 'City View', 'WiFi', 'Minibar', 'Private Bathroom'],
       description: 'Premium executive office with panoramic city views',
-      createdAt: '2024-01-18T10:00:00Z'
+      createdAt: '2024-01-18T10:00:00Z',
+      images: []
     },
     {
       id: '7',
@@ -115,7 +123,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['High-Speed Internet', 'Monitors', 'Whiteboard', 'WiFi', 'Power Strips', 'Security Access'],
       description: 'Technology-focused workspace with development tools',
-      createdAt: '2024-01-19T10:00:00Z'
+      createdAt: '2024-01-19T10:00:00Z',
+      images: []
     },
     {
       id: '8',
@@ -127,7 +136,8 @@ export function Spaces() {
       status: 'Available',
       amenities: ['Yoga Mats', 'Sound System', 'Aromatherapy', 'WiFi', 'Natural Lighting'],
       description: 'Peaceful space for wellness meetings and meditation sessions',
-      createdAt: '2024-01-20T10:00:00Z'
+      createdAt: '2024-01-20T10:00:00Z',
+      images: []
     }
   ])
 
@@ -145,7 +155,8 @@ export function Spaces() {
     location: '',
     capacity: '',
     pricePerHour: '',
-    description: ''
+    description: '',
+    images: [] as string[] // Add images to form data
   })
 
   const [editFormData, setEditFormData] = useState({
@@ -154,7 +165,8 @@ export function Spaces() {
     location: '',
     capacity: '',
     pricePerHour: '',
-    description: ''
+    description: '',
+    images: [] as string[]
   })
 
   const amenityIcons: Record<string, React.ComponentType<{className?: string}>> = {
@@ -192,7 +204,8 @@ export function Spaces() {
       location: '',
       capacity: '',
       pricePerHour: '',
-      description: ''
+      description: '',
+      images: []
     })
   }
 
@@ -203,8 +216,54 @@ export function Spaces() {
       location: '',
       capacity: '',
       pricePerHour: '',
-      description: ''
+      description: '',
+      images: []
     })
+  }
+
+  // Image handling functions
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>, formType: 'add' | 'edit') => {
+    const files = e.target.files
+    if (files) {
+      const newImages: string[] = []
+      
+      Array.from(files).forEach((file) => {
+        if (file.type.startsWith('image/')) {
+          const reader = new FileReader()
+          reader.onload = (e) => {
+            const result = e.target?.result as string
+            newImages.push(result)
+            
+            if (formType === 'add') {
+              setAddFormData(prev => ({
+                ...prev,
+                images: [...prev.images, ...newImages]
+              }))
+            } else {
+              setEditFormData(prev => ({
+                ...prev,
+                images: [...prev.images, ...newImages]
+              }))
+            }
+          }
+          reader.readAsDataURL(file)
+        }
+      })
+    }
+  }
+
+  const removeImage = (index: number, formType: 'add' | 'edit') => {
+    if (formType === 'add') {
+      setAddFormData(prev => ({
+        ...prev,
+        images: prev.images.filter((_, i) => i !== index)
+      }))
+    } else {
+      setEditFormData(prev => ({
+        ...prev,
+        images: prev.images.filter((_, i) => i !== index)
+      }))
+    }
   }
 
   const handleAddSpace = () => {
@@ -219,7 +278,8 @@ export function Spaces() {
         status: 'Available',
         amenities: ['WiFi', 'Power Outlets'],
         description: addFormData.description,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        images: addFormData.images
       }
       setSpaces([...spaces, space])
       resetAddForm()
@@ -239,7 +299,8 @@ export function Spaces() {
         location: editFormData.location,
         capacity: parseInt(editFormData.capacity) || 0,
         pricePerHour: parseInt(editFormData.pricePerHour) || 0,
-        description: editFormData.description
+        description: editFormData.description,
+        images: editFormData.images
       }
       setSpaces(spaces.map(space => 
         space.id === editingSpace.id ? updatedSpace : space
@@ -278,7 +339,8 @@ export function Spaces() {
       location: space.location,
       capacity: space.capacity.toString(),
       pricePerHour: space.pricePerHour?.toString() || '',
-      description: space.description || ''
+      description: space.description || '',
+      images: space.images || []
     })
     setIsEditSheetOpen(true)
   }
@@ -403,6 +465,54 @@ export function Spaces() {
                   rows={3}
                 />
               </div>
+              
+              {/* Image Upload Section */}
+              <div className="space-y-2">
+                <Label>Images</Label>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-center w-full">
+                    <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                        <Upload className="w-8 h-8 mb-4 text-gray-500" />
+                        <p className="mb-2 text-sm text-gray-500">
+                          <span className="font-semibold">Click to upload</span> or drag and drop
+                        </p>
+                        <p className="text-xs text-gray-500">PNG, JPG, JPEG up to 10MB</p>
+                      </div>
+                      <input
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageUpload(e, 'add')}
+                      />
+                    </label>
+                  </div>
+                  
+                  {/* Image Previews */}
+                  {addFormData.images.length > 0 && (
+                    <div className="grid grid-cols-2 gap-4">
+                      {addFormData.images.map((image, index) => (
+                        <div key={index} className="relative group">
+                          <img
+                            src={image}
+                            alt={`Space image ${index + 1}`}
+                            className="w-full h-24 object-cover rounded-lg border"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index, 'add')}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
               <div className="flex justify-end space-x-3 pt-6 border-t">
                 <Button variant="outline" onClick={() => setIsAddSheetOpen(false)}>
                   Cancel
@@ -491,6 +601,54 @@ export function Spaces() {
                 rows={3}
               />
             </div>
+            
+            {/* Image Upload Section for Edit */}
+            <div className="space-y-2">
+              <Label>Images</Label>
+              <div className="space-y-4">
+                <div className="flex items-center justify-center w-full">
+                  <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 transition-colors">
+                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                      <Upload className="w-8 h-8 mb-4 text-gray-500" />
+                      <p className="mb-2 text-sm text-gray-500">
+                        <span className="font-semibold">Click to upload</span> or drag and drop
+                      </p>
+                      <p className="text-xs text-gray-500">PNG, JPG, JPEG up to 10MB</p>
+                    </div>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => handleImageUpload(e, 'edit')}
+                    />
+                  </label>
+                </div>
+                
+                {/* Image Previews for Edit */}
+                {editFormData.images.length > 0 && (
+                  <div className="grid grid-cols-2 gap-4">
+                    {editFormData.images.map((image, index) => (
+                      <div key={index} className="relative group">
+                        <img
+                          src={image}
+                          alt={`Space image ${index + 1}`}
+                          className="w-full h-24 object-cover rounded-lg border"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeImage(index, 'edit')}
+                          className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+            
             <div className="flex justify-end space-x-3 pt-6 border-t">
               <Button variant="outline" onClick={() => setIsEditSheetOpen(false)}>
                 Cancel
@@ -547,7 +705,15 @@ export function Spaces() {
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className="w-12 h-12 bg-gradient-to-br from-blue-100 to-purple-100 rounded-lg flex items-center justify-center">
-                    <ImageIcon className="h-6 w-6 text-blue-600" />
+                    {space.images && space.images.length > 0 ? (
+                      <img 
+                        src={space.images[0]} 
+                        alt={space.name}
+                        className="w-full h-full object-cover rounded-lg"
+                      />
+                    ) : (
+                      <ImageIcon className="h-6 w-6 text-blue-600" />
+                    )}
                   </div>
                   <div>
                     <CardTitle className="text-lg">{space.name}</CardTitle>
@@ -606,6 +772,35 @@ export function Spaces() {
                 <p className="text-sm text-muted-foreground line-clamp-2">{space.description}</p>
               )}
 
+              {/* Image Gallery */}
+              {space.images && space.images.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center text-sm text-muted-foreground">
+                    <ImageIcon className="mr-2 h-4 w-4" />
+                    <span>{space.images.length} image{space.images.length > 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {space.images.slice(0, 3).map((image, index) => (
+                      <img
+                        key={index}
+                        src={image}
+                        alt={`${space.name} image ${index + 1}`}
+                        className="w-full h-16 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => {
+                          // You can add a modal or lightbox here to view full image
+                          window.open(image, '_blank')
+                        }}
+                      />
+                    ))}
+                    {space.images.length > 3 && (
+                      <div className="w-full h-16 bg-gray-100 rounded-lg border flex items-center justify-center text-sm text-gray-500 cursor-pointer hover:bg-gray-200 transition-colors">
+                        +{space.images.length - 3} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Amenities */}
               <div className="flex flex-wrap gap-1">
                 {space.amenities.slice(0, 4).map((amenity, index) => {
@@ -644,4 +839,4 @@ export function Spaces() {
       )}
     </div>
   )
-} 
+}
