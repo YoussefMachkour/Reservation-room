@@ -1,9 +1,9 @@
 // components/layout/MainLayout.tsx
-import React, { useState } from 'react';
-import { Outlet } from 'react-router-dom';
-import { useTheme } from '../../contexts/ThemeContext';
-import { Sidebar } from './sidebar/Sidebar';
-import { Header } from './header/Header';
+import React, { useState } from "react";
+import { Outlet } from "react-router-dom";
+import { useTheme } from "../../contexts/ThemeContext";
+import { Sidebar } from "./sidebar/Sidebar";
+import { Header } from "./header/Header";
 
 export const MainLayout: React.FC = () => {
   const { isDark } = useTheme();
@@ -18,28 +18,25 @@ export const MainLayout: React.FC = () => {
   };
 
   return (
-    <div className={`min-h-screen flex ${isDark ? 'bg-gray-900' : 'bg-gray-50'}`}>
+    <div className={`min-h-screen ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
       {/* Mobile overlay */}
       {isMobileMenuOpen && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 z-40 lg:hidden"
           onClick={closeMobileMenu}
         />
       )}
 
-      {/* Sidebar */}
-      <Sidebar 
-        isOpen={isMobileMenuOpen} 
-        onClose={closeMobileMenu}
-      />
+      {/* Sidebar - Fixed positioning */}
+      <Sidebar isOpen={isMobileMenuOpen} onClose={closeMobileMenu} />
 
-      {/* Main content area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:ml-64">
-        {/* Header */}
+      {/* Main content area - Full width with left margin for sidebar */}
+      <div className="w-full lg:pl-64">
+        {/* Header - Full width */}
         <Header onMenuToggle={toggleMobileMenu} />
-        
-        {/* Page content */}
-        <main className="flex-1 p-6 overflow-auto">
+
+        {/* Page content - Full available width */}
+        <main className="w-full p-6 min-h-[calc(100vh-4rem)] overflow-auto">
           <Outlet />
         </main>
       </div>

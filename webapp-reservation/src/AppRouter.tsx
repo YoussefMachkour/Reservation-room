@@ -1,25 +1,23 @@
-import React from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth } from './contexts/AuthContext';
-import { LoadingSpinner } from './components/ui/LoadingSpinner';
+import React from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import { useAuth } from "./contexts/AuthContext";
+import { LoadingSpinner } from "./components/ui/LoadingSpinner";
 
 // Layout Components
-import { MainLayout } from './components/layout/MainLayout';
+import { MainLayout } from "./components/layout/MainLayout";
 
 // Auth Pages
-import { LoginPage } from './pages/auth/LoginPage';
-import { RegisterPage } from './pages/auth/RegisterPage';
+import { LoginPage } from "./pages/auth/LoginPage";
+import { RegisterPage } from "./pages/auth/RegisterPage";
 
 // Main Pages
-import { SpaceDetailsPage } from './pages/spaces/SpaceDetails';
-import Dashboard from './pages/dashboard/Dashboard';
-import { SpacesPage } from './pages/spaces/Spaces';
-import { Bookings } from './pages/bookings/Bookings';
-import { SpaceBooking } from './pages/bookings/SpaceBooking';
-// import { ProfilePage } from './pages/profile/ProfilePage';
-
-// // Admin Pages
-// import { AdminDashboardPage } from './pages/admin/AdminDashboardPage';
+import { SpaceDetailsPage } from "./pages/spaces/SpaceDetails";
+import Dashboard from "./pages/dashboard/Dashboard";
+import { SpacesPage } from "./pages/spaces/Spaces";
+import { Bookings } from "./pages/bookings/Bookings";
+import { SpaceBooking } from "./pages/bookings/SpaceBooking";
+import { CustomerSupportPage } from "./pages/support/CustomerSupportPage";
+import { ProfilePage } from "./pages/profile/ProfilePage"; // ADD THIS
 
 // Protected Route Component
 interface ProtectedRouteProps {
@@ -27,7 +25,10 @@ interface ProtectedRouteProps {
   adminOnly?: boolean;
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = false }) => {
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+  children,
+  adminOnly = false,
+}) => {
   const { user, loading } = useAuth();
 
   if (loading) {
@@ -38,14 +39,14 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, adminOnly = f
     return <Navigate to="/login" replace />;
   }
 
-  if (adminOnly && user.role !== 'admin') {
+  if (adminOnly && user.role !== "admin") {
     return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;
 };
 
-// Public Route Component (redirect to dashboard if already logged in)
+// Public Route Component
 interface PublicRouteProps {
   children: React.ReactNode;
 }
@@ -68,26 +69,26 @@ export const AppRouter: React.FC = () => {
   return (
     <Routes>
       {/* Public Routes */}
-      <Route 
-        path="/login" 
+      <Route
+        path="/login"
         element={
           <PublicRoute>
             <LoginPage />
           </PublicRoute>
-        } 
+        }
       />
-      <Route 
-        path="/register" 
+      <Route
+        path="/register"
         element={
           <PublicRoute>
             <RegisterPage />
           </PublicRoute>
-        } 
+        }
       />
 
       {/* Protected Routes with Layout */}
-      <Route 
-        path="/" 
+      <Route
+        path="/"
         element={
           <ProtectedRoute>
             <MainLayout />
@@ -104,10 +105,13 @@ export const AppRouter: React.FC = () => {
 
         {/* Bookings */}
         <Route path="bookings" element={<Bookings />} />
-        <Route path="bookings" element={<SpaceBooking />} />
+        <Route path="bookings/:id" element={<SpaceBooking />} />
+
+        {/* Customer Support */}
+        <Route path="support" element={<CustomerSupportPage />} />
 
         {/* Profile */}
-        {/* <Route path="profile" element={<ProfilePage />} /> */}
+        <Route path="profile" element={<ProfilePage />} />
 
         {/* Admin Routes */}
         {/* <Route 
