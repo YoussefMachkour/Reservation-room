@@ -1,37 +1,54 @@
-import { useState } from 'react'
-import { Outlet, Link, useLocation } from 'react-router-dom'
-import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
-import { 
-  Menu, 
-  Bell, 
-  Home, 
-  Building2, 
-  Calendar, 
-  Users, 
-  MessageSquare, 
-  BarChart3, 
+import { useState } from "react";
+import { Outlet, Link, useLocation } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Menu,
+  Home,
+  Building2,
+  Calendar,
+  Users,
+  MessageSquare,
+  BarChart3,
   CreditCard,
   Settings,
-  LogOut
-} from 'lucide-react'
+  LogOut,
+} from "lucide-react";
+import { NotificationDrawer } from "../NotificationDrawer";
+import { mockNotifications } from "../../mock/notifications";
+import type { Notification } from "../../mock/notifications";
 
 const navigation = [
-  { name: 'Dashboard', href: '/', icon: Home },
-  { name: 'Spaces', href: '/spaces', icon: Building2 },
-  { name: 'Reservations', href: '/reservations', icon: Calendar },
-  { name: 'Members', href: '/members', icon: Users },
-  { name: 'Messages', href: '/messages', icon: MessageSquare },
-  { name: 'Analytics', href: '/analytics', icon: BarChart3 },
-  { name: 'Payments', href: '/payments', icon: CreditCard },
-  { name: 'Settings', href: '/settings', icon: Settings },
-]
+  { name: "Dashboard", href: "/", icon: Home },
+  { name: "Spaces", href: "/spaces", icon: Building2 },
+  { name: "Reservations", href: "/reservations", icon: Calendar },
+  { name: "Members", href: "/members", icon: Users },
+  { name: "Messages", href: "/messages", icon: MessageSquare },
+  { name: "Analytics", href: "/analytics", icon: BarChart3 },
+  { name: "Payments", href: "/payments", icon: CreditCard },
+  { name: "Settings", href: "/settings", icon: Settings },
+];
 
 export function DashboardLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  const location = useLocation()
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [notifications, setNotifications] =
+    useState<Notification[]>(mockNotifications);
+  const location = useLocation();
+
+  const markAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+  };
+
+  const markAllAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+  };
+
+  const deleteNotification = (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
 
   const SidebarContent = () => (
     <div className="flex h-full flex-col">
@@ -44,23 +61,23 @@ export function DashboardLayout() {
       {/* Navigation */}
       <nav className="flex-1 space-y-1 px-3 py-4">
         {navigation.map((item) => {
-          const isActive = location.pathname === item.href
-          const Icon = item.icon
+          const isActive = location.pathname === item.href;
+          const Icon = item.icon;
           return (
             <Link
               key={item.name}
               to={item.href}
               className={`flex items-center rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                 isActive
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
               }`}
               onClick={() => setSidebarOpen(false)}
             >
               <Icon className="mr-3 h-4 w-4" />
               {item.name}
             </Link>
-          )
+          );
         })}
       </nav>
 
@@ -81,7 +98,7 @@ export function DashboardLayout() {
         </div>
       </div>
     </div>
-  )
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -123,20 +140,19 @@ export function DashboardLayout() {
                 <Menu className="h-5 w-5" />
               </Button>
               <h1 className="ml-2 text-lg font-semibold md:ml-0">
-                {navigation.find(item => item.href === location.pathname)?.name || 'Dashboard'}
+                {navigation.find((item) => item.href === location.pathname)
+                  ?.name || "Dashboard"}
               </h1>
             </div>
-            
+
             <div className="flex items-center space-x-4">
-              <Button variant="ghost" size="icon" className="relative">
-                <Bell className="h-5 w-5" />
-                <Badge 
-                  variant="destructive" 
-                  className="absolute -top-2 -right-2 h-5 w-5 rounded-full p-0 flex items-center justify-center text-xs"
-                >
-                  3
-                </Badge>
-              </Button>
+              <NotificationDrawer
+                notifications={notifications}
+                onMarkAsRead={markAsRead}
+                onMarkAllAsRead={markAllAsRead}
+                onDeleteNotification={deleteNotification}
+              />
+
               <Avatar className="h-8 w-8">
                 <AvatarImage src="/avatars/admin.png" alt="Admin" />
                 <AvatarFallback>AD</AvatarFallback>
@@ -151,5 +167,5 @@ export function DashboardLayout() {
         </main>
       </div>
     </div>
-  )
+  );
 }
