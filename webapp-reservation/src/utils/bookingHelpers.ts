@@ -433,7 +433,7 @@ export const getSpaceCapacityLabel = (capacity: number): string => {
 };
 
 // Check if user can book a space
-export const canBookSpace = (status: string, userRole?: string): boolean => {
+export const canBookSpace = (status: string, _userRole?: string): boolean => {
   if (!isSpaceAvailable(status)) return false;
   
   // If space requires approval and user is not admin/manager, they can still book but it will be pending
