@@ -1,384 +1,290 @@
-import { useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
-import { ScrollArea } from '@/components/ui/scroll-area'
-import { Alert, AlertDescription } from '@/components/ui/alert'
+// pages/admin/Messages.tsx
+import React, { useState, useRef, useEffect } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   Search, 
-  Send, 
-  MoreHorizontal,
-  Phone,
-  Video,
-  Info,
-  Paperclip,
-  Smile,
   MessageCircle,
   Users,
-  CheckCircle2,
-  Circle
-} from 'lucide-react'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import type { Message } from '@/types'
+  Wifi,
+  WifiOff,
+  Filter,
+  Plus
+} from 'lucide-react';
 
-interface Conversation {
-  id: string
-  participantName: string
-  participantAvatar?: string
-  lastMessage: string
-  timestamp: string
-  unreadCount: number
-  isOnline: boolean
-  membershipType: 'Premium' | 'Basic' | 'Enterprise'
-  messages: Message[]
+// Import chat components
+import { ConversationList } from '@/components/chat/ConversationList';
+import { ConversationHeader } from '@/components/chat/ConversationHeader';
+import { MessageList } from '@/components/chat/MessageList';
+import { ChatInput } from '@/components/chat/ChatInput';
+import { TypingIndicator } from '@/components/chat/TypingIndicator';
+
+// Import types and utilities
+import type { 
+  Conversation, 
+  Message, 
+  ConversationParticipant,
+  MessageAttachment,
+  MessageType
+} from '@/types/chat';
+import { 
+  ChatUtils 
+} from '@/types/chat';
+
+// Import mock data
+import { mockConversations, mockMessages, mockTypingUsers } from '@/mock/chat';
+
+interface ChatInputMessageData {
+  content: string;
+  type: MessageType;
+  attachments?: File[];
 }
 
-export function Messages() {
-  const [searchTerm, setSearchTerm] = useState('')
-  const [selectedConversation, setSelectedConversation] = useState<string | null>('1')
-  const [newMessage, setNewMessage] = useState('')
-  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null)
+export function AdminMessages() {
+  // State management
+  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
+  const [messages, setMessages] = useState<{[key: string]: Message[]}>(mockMessages);
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>('1');
+  const [typingUsers, setTypingUsers] = useState<{[key: string]: ConversationParticipant[]}>(mockTypingUsers);
+  const [connectionStatus, setConnectionStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connected');
+  
+  // Filter states
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [priorityFilter, setPriorityFilter] = useState<string>('all');
+  
+  // UI states
+  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const [conversations, setConversations] = useState<Conversation[]>([
-    {
-      id: '1',
-      participantName: 'John Smith',
-      participantAvatar: '',
-      lastMessage: 'Thanks for confirming my meeting room booking!',
-      timestamp: '2025-03-15T10:30:00Z',
-      unreadCount: 0,
-      isOnline: true,
-      membershipType: 'Premium',
-      messages: [
-        {
-          id: '1',
-          senderId: '1',
-          senderName: 'John Smith',
-          content: 'Hi, I wanted to book Meeting Room A for tomorrow at 2 PM.',
-          timestamp: '2025-03-15T09:00:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '2',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Hi John! I can help you with that booking. Let me check the availability for Meeting Room A tomorrow at 2 PM.',
-          timestamp: '2025-03-15T09:05:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '3',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Great news! Meeting Room A is available tomorrow from 2 PM to 4 PM. I\'ve confirmed your booking.',
-          timestamp: '2025-03-15T09:10:00Z',
-          type: 'booking_confirmation',
-          isRead: true
-        },
-        {
-          id: '4',
-          senderId: '1',
-          senderName: 'John Smith',
-          content: 'Perfect! How much will that be?',
-          timestamp: '2025-03-15T09:15:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '5',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'The cost for 2 hours in Meeting Room A is $100. I\'ll send you the payment link shortly.',
-          timestamp: '2025-03-15T09:20:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '6',
-          senderId: '1',
-          senderName: 'John Smith',
-          content: 'Thanks for confirming my meeting room booking!',
-          timestamp: '2025-03-15T10:30:00Z',
-          type: 'text',
-          isRead: true
-        }
-      ]
-    },
-    {
-      id: '2',
-      participantName: 'Sarah Johnson',
-      participantAvatar: '',
-      lastMessage: 'Can you help me renew my membership?',
-      timestamp: '2025-03-15T08:45:00Z',
-      unreadCount: 2,
-      isOnline: false,
-      membershipType: 'Basic',
-      messages: [
-        {
-          id: '7',
-          senderId: '2',
-          senderName: 'Sarah Johnson',
-          content: 'Hello! My membership expired last week. Can you help me renew it?',
-          timestamp: '2025-03-15T08:30:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '8',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Hi Sarah! I can definitely help you renew your membership. Let me check your account details.',
-          timestamp: '2025-03-15T08:35:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '9',
-          senderId: '2',
-          senderName: 'Sarah Johnson',
-          content: 'Can you help me renew my membership?',
-          timestamp: '2025-03-15T08:45:00Z',
-          type: 'text',
-          isRead: false
-        }
-      ]
-    },
-    {
-      id: '3',
-      participantName: 'Mike Chen',
-      participantAvatar: '',
-      lastMessage: 'The conference room setup looks perfect!',
-      timestamp: '2025-03-15T07:20:00Z',
-      unreadCount: 0,
-      isOnline: true,
-      membershipType: 'Enterprise',
-      messages: [
-        {
-          id: '10',
-          senderId: '3',
-          senderName: 'Mike Chen',
-          content: 'Hi, I need to book Conference Room B for a client presentation next week.',
-          timestamp: '2025-03-15T07:00:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '11',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Hi Mike! I\'d be happy to help you book Conference Room B. What date and time works best for you?',
-          timestamp: '2025-03-15T07:05:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '12',
-          senderId: '3',
-          senderName: 'Mike Chen',
-          content: 'Next Wednesday from 2 PM to 4 PM would be ideal. We\'ll need the projector and video conferencing setup.',
-          timestamp: '2025-03-15T07:10:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '13',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Perfect! I\'ve booked Conference Room B for next Wednesday 2-4 PM with all the AV equipment you requested.',
-          timestamp: '2025-03-15T07:15:00Z',
-          type: 'booking_confirmation',
-          isRead: true
-        },
-        {
-          id: '14',
-          senderId: '3',
-          senderName: 'Mike Chen',
-          content: 'The conference room setup looks perfect!',
-          timestamp: '2025-03-15T07:20:00Z',
-          type: 'text',
-          isRead: true
-        }
-      ]
-    },
-    {
-      id: '4',
-      participantName: 'Emma Wilson',
-      participantAvatar: '',
-      lastMessage: 'Is the Creative Studio available this afternoon?',
-      timestamp: '2025-03-15T06:30:00Z',
-      unreadCount: 1,
-      isOnline: false,
-      membershipType: 'Premium',
-      messages: [
-        {
-          id: '15',
-          senderId: '4',
-          senderName: 'Emma Wilson',
-          content: 'Hi! I was wondering if the Creative Studio is available this afternoon around 3 PM?',
-          timestamp: '2025-03-15T06:15:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '16',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Hi Emma! Let me check the Creative Studio availability for this afternoon.',
-          timestamp: '2025-03-15T06:20:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '17',
-          senderId: '4',
-          senderName: 'Emma Wilson',
-          content: 'Is the Creative Studio available this afternoon?',
-          timestamp: '2025-03-15T06:30:00Z',
-          type: 'text',
-          isRead: false
-        }
-      ]
-    },
-    {
-      id: '5',
-      participantName: 'David Brown',
-      participantAvatar: '',
-      lastMessage: 'Thank you for the hot desk reservation!',
-      timestamp: '2025-03-14T16:45:00Z',
-      unreadCount: 0,
-      isOnline: false,
-      membershipType: 'Basic',
-      messages: [
-        {
-          id: '18',
-          senderId: '5',
-          senderName: 'David Brown',
-          content: 'I need a hot desk for tomorrow morning. Are there any available?',
-          timestamp: '2025-03-14T16:30:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '19',
-          senderId: 'admin',
-          senderName: 'Admin',
-          content: 'Hi David! Yes, we have several hot desks available tomorrow morning. I can reserve one for you.',
-          timestamp: '2025-03-14T16:35:00Z',
-          type: 'text',
-          isRead: true
-        },
-        {
-          id: '20',
-          senderId: '5',
-          senderName: 'David Brown',
-          content: 'Thank you for the hot desk reservation!',
-          timestamp: '2025-03-14T16:45:00Z',
-          type: 'text',
-          isRead: true
-        }
-      ]
-    }
-  ])
+  // Refs
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.participantName.toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // Computed values
+  const filteredConversations = conversations.filter(conv => {
+    const participant = conv.participants[0];
+    const matchesSearch = participant.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         participant.email.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || conv.status === statusFilter;
+    const matchesPriority = priorityFilter === 'all' || conv.priority === priorityFilter;
+    
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
 
-  const selectedConv = conversations.find(conv => conv.id === selectedConversation)
+  const selectedConversation = conversations.find(conv => conv.id === selectedConversationId);
+  const selectedMessages = selectedConversationId ? messages[selectedConversationId] || [] : [];
+  const selectedTypingUsers = selectedConversationId ? typingUsers[selectedConversationId] || [] : [];
+  
+  const totalUnread = conversations.reduce((sum, conv) => sum + conv.unreadCount, 0);
+  const onlineCount = conversations.reduce((count, conv) => 
+    count + conv.participants.filter(p => p.isOnline).length, 0
+  );
 
-  const showNotification = (type: 'success' | 'error', message: string) => {
-    setNotification({ type, message })
-    setTimeout(() => setNotification(null), 3000)
-  }
-
-  const handleSendMessage = () => {
-    if (newMessage.trim() && selectedConversation) {
-      const message: Message = {
-        id: Date.now().toString(),
-        senderId: 'admin',
-        senderName: 'Admin',
-        content: newMessage.trim(),
-        timestamp: new Date().toISOString(),
-        type: 'text',
-        isRead: true
+  // Effects
+  useEffect(() => {
+    // Simulate connection status changes
+    const interval = setInterval(() => {
+      const statuses: ('connected' | 'connecting' | 'disconnected')[] = ['connected', 'connecting', 'disconnected'];
+      const randomStatus = statuses[Math.floor(Math.random() * statuses.length)];
+      if (Math.random() > 0.95) { // 5% chance to change status
+        setConnectionStatus(randomStatus);
       }
+    }, 5000);
 
-      setConversations(prev => prev.map(conv => 
-        conv.id === selectedConversation 
-          ? { 
-              ...conv, 
-              messages: [...conv.messages, message],
-              lastMessage: newMessage.trim(),
-              timestamp: new Date().toISOString()
-            }
-          : conv
-      ))
+    return () => clearInterval(interval);
+  }, []);
 
-      setNewMessage('')
-      showNotification('success', 'Message sent successfully!')
-    }
-  }
+  useEffect(() => {
+    // Clear typing users after some time
+    const timeout = setTimeout(() => {
+      setTypingUsers({});
+    }, 3000);
 
-  const markAsRead = (conversationId: string) => {
+    return () => clearTimeout(timeout);
+  }, [typingUsers]);
+
+  // Event handlers
+  const showNotification = (type: 'success' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const handleConversationSelect = (conversationId: string) => {
+    setSelectedConversationId(conversationId);
+  };
+
+  const handleMarkAsRead = (conversationId: string) => {
     setConversations(prev => prev.map(conv => 
       conv.id === conversationId 
         ? { ...conv, unreadCount: 0 }
         : conv
-    ))
-  }
+    ));
+  };
 
-  const formatMessageTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
+  const handleSendMessage = (messageData: ChatInputMessageData) => {
+    if (!selectedConversationId) return;
 
-  const formatLastMessageTime = (timestamp: string) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+    setIsLoading(true);
+
+    // Create text message
+    if (messageData.content.trim()) {
+      const newMessage: Message = {
+        id: ChatUtils.createMessageId(),
+        conversationId: selectedConversationId,
+        senderId: 'admin1',
+        senderName: 'Admin Support',
+        senderType: 'admin',
+        content: messageData.content.trim(),
+        timestamp: new Date().toISOString(),
+        type: 'text',
+        isRead: true
+      };
+
+      setMessages(prev => ({
+        ...prev,
+        [selectedConversationId]: [...(prev[selectedConversationId] || []), newMessage]
+      }));
+    }
+
+    // Handle file attachments
+    if (messageData.attachments && messageData.attachments.length > 0) {
+      messageData.attachments.forEach((file, index) => {
+        const fileUrl = URL.createObjectURL(file);
+        const fileMessage: Message = {
+          id: ChatUtils.createMessageId(),
+          conversationId: selectedConversationId,
+          senderId: 'admin1',
+          senderName: 'Admin Support',
+          senderType: 'admin',
+          content: `Shared a ${ChatUtils.getFileTypeLabel(file.type)}`,
+          timestamp: new Date().toISOString(),
+          type: ChatUtils.getMessageType(file.type),
+          isRead: true,
+          attachments: [{
+            id: `attachment-${Date.now() + index}`,
+            messageId: ChatUtils.createMessageId(),
+            fileName: file.name,
+            fileSize: file.size,
+            fileType: file.type,
+            fileUrl: fileUrl
+          }]
+        };
+
+        setMessages(prev => ({
+          ...prev,
+          [selectedConversationId]: [...(prev[selectedConversationId] || []), fileMessage]
+        }));
+      });
+    }
+
+    // Update conversation
+    setConversations(prev => prev.map(conv => 
+      conv.id === selectedConversationId 
+        ? { 
+            ...conv, 
+            lastMessage: {
+              id: ChatUtils.createMessageId(),
+              conversationId: selectedConversationId,
+              senderId: 'admin1',
+              senderName: 'Admin Support',
+              senderType: 'admin',
+              content: messageData.attachments && messageData.attachments.length > 0 
+                ? `Shared ${messageData.attachments.length} file(s)` 
+                : messageData.content.trim(),
+              timestamp: new Date().toISOString(),
+              type: 'text',
+              isRead: true
+            },
+            lastMessageAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          }
+        : conv
+    ));
+
+    setIsLoading(false);
+    showNotification('success', 'Message sent successfully!');
+  };
+
+  const handleStatusChange = (status: 'active' | 'resolved' | 'pending') => {
+    if (!selectedConversationId) return;
+
+    setConversations(prev => prev.map(conv => 
+      conv.id === selectedConversationId 
+        ? { ...conv, status, updatedAt: new Date().toISOString() }
+        : conv
+    ));
+    showNotification('success', `Conversation marked as ${status}`);
+  };
+
+  const handlePriorityChange = (priority: 'low' | 'normal' | 'high' | 'urgent') => {
+    if (!selectedConversationId) return;
+
+    setConversations(prev => prev.map(conv => 
+      conv.id === selectedConversationId 
+        ? { ...conv, priority, updatedAt: new Date().toISOString() }
+        : conv
+    ));
+    showNotification('success', `Priority updated to ${priority}`);
+  };
+
+  const handleFileDownload = (attachment: MessageAttachment) => {
+    ChatUtils.downloadFile(attachment.fileUrl, attachment.fileName);
+  };
+
+  const handleImageClick = (imageUrl: string) => {
+    window.open(imageUrl, '_blank');
+  };
+
+  const handleArchiveConversation = () => {
+    if (!selectedConversationId) return;
     
-    if (diffHours < 1) return 'Just now'
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays === 1) return 'Yesterday'
-    return `${diffDays}d ago`
-  }
+    setConversations(prev => prev.map(conv => 
+      conv.id === selectedConversationId 
+        ? { ...conv, isArchived: true, updatedAt: new Date().toISOString() }
+        : conv
+    ));
+    showNotification('success', 'Conversation archived');
+    setSelectedConversationId(null);
+  };
 
-  const getMembershipColor = (type: 'Premium' | 'Basic' | 'Enterprise') => {
-    switch (type) {
-      case 'Enterprise': return 'bg-purple-100 text-purple-800'
-      case 'Premium': return 'bg-blue-100 text-blue-800'
-      case 'Basic': return 'bg-gray-100 text-gray-800'
-      default: return 'bg-gray-100 text-gray-800'
-    }
-  }
+  const handleBlockUser = () => {
+    if (!selectedConversation) return;
+    
+    showNotification('success', `User ${selectedConversation.participants[0].name} has been blocked`);
+    setSelectedConversationId(null);
+  };
 
-  const getMessageTypeColor = (type: Message['type']) => {
-    switch (type) {
-      case 'booking_confirmation': return 'bg-green-50 border-green-200 text-green-800'
-      case 'membership_renewal': return 'bg-blue-50 border-blue-200 text-blue-800'
-      case 'cancellation': return 'bg-red-50 border-red-200 text-red-800'
-      default: return ''
-    }
-  }
-
-  const totalUnread = conversations.reduce((sum, conv) => sum + conv.unreadCount, 0)
-  const onlineCount = conversations.filter(conv => conv.isOnline).length
+  const handleViewProfile = () => {
+    if (!selectedConversation) return;
+    
+    showNotification('success', `Opening profile for ${selectedConversation.participants[0].name}`);
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Notification */}
+    <div className="space-y-6 h-full">
+      {/* Floating Toast Notification */}
       {notification && (
-        <Alert className={notification.type === 'success' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
-          <AlertDescription className={notification.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-            {notification.message}
-          </AlertDescription>
-        </Alert>
+        <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
+          <Alert className={`${notification.type === 'success' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'} shadow-lg max-w-md`}>
+            <AlertDescription className={`${notification.type === 'success' ? 'text-green-800' : 'text-red-800'} flex items-center gap-2`}>
+              {notification.type === 'success' ? (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              )}
+              {notification.message}
+            </AlertDescription>
+          </Alert>
+        </div>
       )}
 
       {/* Header */}
@@ -386,7 +292,7 @@ export function Messages() {
         <div>
           <h2 className="text-3xl font-bold tracking-tight">Messages</h2>
           <p className="text-muted-foreground">
-            Communicate with your members • {conversations.length} conversations • {totalUnread} unread • {onlineCount} online
+            Manage customer conversations • {conversations.length} total • {totalUnread} unread • {onlineCount} online
           </p>
         </div>
         <div className="flex items-center space-x-2">
@@ -398,214 +304,212 @@ export function Messages() {
             <Users className="h-3 w-3" />
             <span>{onlineCount} online</span>
           </Badge>
+          <Badge variant="outline" className="flex items-center space-x-1">
+            {connectionStatus === 'connected' ? (
+              <Wifi className="h-3 w-3 text-green-600" />
+            ) : (
+              <WifiOff className="h-3 w-3 text-red-600" />
+            )}
+            <span className="capitalize">{connectionStatus}</span>
+          </Badge>
+          <Button size="sm">
+            <Plus className="h-4 w-4 mr-2" />
+            New Conversation
+          </Button>
         </div>
       </div>
 
-      {/* Chat Interface */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[600px]">
-        {/* Conversations List */}
-        <Card className="lg:col-span-1">
+      {/* Main Chat Interface */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-200px)]">
+        {/* Conversations Sidebar */}
+        <Card className="lg:col-span-1 flex flex-col">
           <CardHeader className="pb-3">
-            <CardTitle className="text-lg">Conversations</CardTitle>
-            <div className="relative">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search conversations..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10"
-              />
+            <CardTitle className="text-lg flex items-center justify-between">
+              Conversations
+              <Button variant="ghost" size="icon">
+                <Filter className="h-4 w-4" />
+              </Button>
+            </CardTitle>
+            <div className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search conversations..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="resolved">Resolved</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                  <SelectTrigger className="h-8">
+                    <SelectValue placeholder="Priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Priority</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="normal">Normal</SelectItem>
+                    <SelectItem value="low">Low</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </CardHeader>
-          <CardContent className="p-0">
-            <ScrollArea className="h-[480px]">
-              <div className="space-y-1 p-4">
-                {filteredConversations.map((conversation) => (
-                  <div
-                    key={conversation.id}
-                    className={`flex items-center space-x-3 p-3 rounded-lg cursor-pointer transition-colors ${
-                      selectedConversation === conversation.id 
-                        ? 'bg-primary/10 border-primary/20 border' 
-                        : 'hover:bg-muted/50'
-                    }`}
-                    onClick={() => {
-                      setSelectedConversation(conversation.id)
-                      markAsRead(conversation.id)
-                    }}
-                  >
-                    <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={conversation.participantAvatar} alt={conversation.participantName} />
-                        <AvatarFallback className="bg-gradient-to-br from-blue-100 to-purple-100 text-blue-600 font-medium">
-                          {conversation.participantName.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      {conversation.isOnline && (
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium truncate">{conversation.participantName}</p>
-                        <div className="flex items-center space-x-2">
-                          <Badge variant="outline" className={`text-xs ${getMembershipColor(conversation.membershipType)}`}>
-                            {conversation.membershipType}
-                          </Badge>
-                          {conversation.unreadCount > 0 && (
-                            <Badge variant="destructive" className="text-xs">
-                              {conversation.unreadCount}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-sm text-muted-foreground truncate">{conversation.lastMessage}</p>
-                      <p className="text-xs text-muted-foreground">{formatLastMessageTime(conversation.timestamp)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
+          <CardContent className="p-0 flex-1">
+            <ConversationList
+              conversations={filteredConversations}
+              selectedConversationId={selectedConversationId}
+              onConversationSelect={handleConversationSelect}
+              onMarkAsRead={handleMarkAsRead}
+              showTags={true}
+              className="h-full"
+            />
           </CardContent>
         </Card>
 
         {/* Chat Area */}
-        <Card className="lg:col-span-2">
-          {selectedConv ? (
+        <Card className="lg:col-span-2 flex flex-col">
+          {selectedConversation ? (
             <>
-              {/* Chat Header */}
-              <CardHeader className="pb-3 border-b">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    <div className="relative">
-                      <Avatar className="h-10 w-10">
-                        <AvatarImage src={selectedConv.participantAvatar} alt={selectedConv.participantName} />
-                        <AvatarFallback className="bg-gradient-to-br from-blue-100 to-purple-100 text-blue-600 font-medium">
-                          {selectedConv.participantName.split(' ').map(n => n[0]).join('')}
-                        </AvatarFallback>
-                      </Avatar>
-                      {selectedConv.isOnline && (
-                        <div className="absolute -bottom-1 -right-1 w-3 h-3 bg-green-500 rounded-full border-2 border-white"></div>
-                      )}
-                    </div>
-                    <div>
-                      <h3 className="font-medium">{selectedConv.participantName}</h3>
-                      <p className="text-sm text-muted-foreground">
-                        {selectedConv.isOnline ? 'Online' : 'Offline'} • {selectedConv.membershipType} Member
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Button variant="ghost" size="icon">
-                      <Phone className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon">
-                      <Video className="h-4 w-4" />
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem>
-                          <Info className="mr-2 h-4 w-4" />
-                          View Profile
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          Archive Conversation
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">
-                          Block User
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-              </CardHeader>
+              {/* Conversation Header */}
+              <ConversationHeader
+                conversation={selectedConversation}
+                connectionStatus={connectionStatus}
+                onStatusChange={handleStatusChange}
+                onPriorityChange={handlePriorityChange}
+                onArchive={handleArchiveConversation}
+                onBlock={handleBlockUser}
+                onViewProfile={handleViewProfile}
+                onCall={() => showNotification('success', 'Starting voice call...')}
+                onVideoCall={() => showNotification('success', 'Starting video call...')}
+                showControls={true}
+                showTags={true}
+              />
 
-              {/* Messages */}
-              <CardContent className="p-0">
-                <ScrollArea className="h-[400px]">
-                  <div className="p-4 space-y-4">
-                    {selectedConv.messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={`flex ${message.senderId === 'admin' ? 'justify-end' : 'justify-start'}`}
-                      >
-                        <div
-                          className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                            message.senderId === 'admin'
-                              ? 'bg-primary text-primary-foreground'
-                              : message.type === 'text'
-                              ? 'bg-muted'
-                              : `border ${getMessageTypeColor(message.type)}`
-                          }`}
-                        >
-                          <p className="text-sm">{message.content}</p>
-                          <div className="flex items-center justify-between mt-1">
-                            <p className="text-xs opacity-70">{formatMessageTime(message.timestamp)}</p>
-                            {message.senderId === 'admin' && (
-                              <div className="ml-2">
-                                {message.isRead ? (
-                                  <CheckCircle2 className="h-3 w-3 opacity-70" />
-                                ) : (
-                                  <Circle className="h-3 w-3 opacity-70" />
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              </CardContent>
-
-              {/* Message Input */}
-              <div className="p-4 border-t">
-                <div className="flex items-center space-x-2">
-                  <Button variant="ghost" size="icon">
-                    <Paperclip className="h-4 w-4" />
-                  </Button>
-                  <div className="flex-1 relative">
-                    <Input
-                      placeholder="Type your message..."
-                      value={newMessage}
-                      onChange={(e) => setNewMessage(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
-                      className="pr-10"
-                    />
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="absolute right-1 top-1/2 transform -translate-y-1/2"
-                    >
-                      <Smile className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  <Button 
-                    onClick={handleSendMessage}
-                    disabled={!newMessage.trim()}
-                  >
-                    <Send className="h-4 w-4" />
-                  </Button>
-                </div>
+              {/* Messages Area */}
+              <div className="flex-1 min-h-0">
+                <MessageList
+                  messages={selectedMessages}
+                  currentUserId="admin1"
+                  typingUsers={selectedTypingUsers}
+                  showAvatars={true}
+                  showMetadata={true}
+                  onFileDownload={handleFileDownload}
+                  onImageClick={handleImageClick}
+                  onMessageRead={(messageIds) => {
+                    // Mark messages as read
+                    setMessages(prev => ({
+                      ...prev,
+                      [selectedConversationId!]: prev[selectedConversationId!]?.map(msg =>
+                        messageIds.includes(msg.id) ? { ...msg, isRead: true } : msg
+                      ) || []
+                    }));
+                  }}
+                  autoScroll={true}
+                  className="flex-1"
+                />
               </div>
+
+              {/* Chat Input */}
+              <ChatInput
+                onSendMessage={handleSendMessage}
+                placeholder="Type your message..."
+                disabled={isLoading || connectionStatus === 'disconnected'}
+                showFileUpload={true}
+                showEmoji={true}
+                maxLength={2000}
+              />
             </>
           ) : (
+            /* No Conversation Selected */
             <div className="flex items-center justify-center h-full">
-              <div className="text-center">
-                <MessageCircle className="mx-auto h-12 w-12 text-muted-foreground" />
-                <h3 className="mt-2 text-sm font-semibold">Select a conversation</h3>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  Choose a conversation from the list to start messaging.
-                </p>
+              <div className="text-center space-y-4">
+                <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mx-auto">
+                  <MessageCircle className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold">Select a conversation</h3>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Choose a conversation from the list to start messaging
+                  </p>
+                </div>
+                <Button onClick={() => setSelectedConversationId(conversations[0]?.id || null)}>
+                  Open First Conversation
+                </Button>
               </div>
             </div>
           )}
         </Card>
       </div>
+
+      {/* Quick Stats Footer */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Total Conversations</p>
+                <p className="text-2xl font-bold">{conversations.length}</p>
+              </div>
+              <MessageCircle className="h-8 w-8 text-muted-foreground" />
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Unread Messages</p>
+                <p className="text-2xl font-bold text-red-600">{totalUnread}</p>
+              </div>
+              <Badge variant="destructive" className="text-lg px-2 py-1">
+                {totalUnread}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Online Users</p>
+                <p className="text-2xl font-bold text-green-600">{onlineCount}</p>
+              </div>
+              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-muted-foreground">Urgent Priority</p>
+                <p className="text-2xl font-bold text-orange-600">
+                  {conversations.filter(c => c.priority === 'urgent').length}
+                </p>
+              </div>
+              <Badge variant="outline" className="bg-red-50 text-red-600 border-red-200">
+                Urgent
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
-  )
-} 
+  );
+}
