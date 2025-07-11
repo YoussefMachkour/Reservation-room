@@ -70,10 +70,11 @@ var (
 
 // ErrorResponse represents a standardized error response
 type ErrorResponse struct {
-	Error   string                 `json:"error"`
-	Message string                 `json:"message,omitempty"`
-	Code    string                 `json:"code,omitempty"`
-	Details map[string]interface{} `json:"details,omitempty"`
+	Error      string                 `json:"error"`
+	Message    string                 `json:"message,omitempty"`
+	Code       string                 `json:"code,omitempty"`
+	StatusCode int                    `json:"status_code,omitempty"`
+	Details    map[string]interface{} `json:"details,omitempty"`
 }
 
 // ValidationError represents field validation errors
