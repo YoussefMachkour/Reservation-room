@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Calendar, Clock, Users, AlertCircle, CheckCircle } from 'lucide-react';
+import { Calendar, Clock, Users, CheckCircle } from 'lucide-react';
 import { format, addHours, parse } from 'date-fns';
 import { Button } from '../../ui/button/Button';
 import { Input } from '../../ui/input/Input';
 import { generateTimeSlots } from '../../../utils/bookingHelpers';
+import { useToast } from '../../../hooks/useToast';
+import { ToastContainer } from '../../ui/toast/Toast';
 import type { Space } from '../../../types/space';
 
 interface QuickBookingCardProps {
@@ -31,6 +33,7 @@ export const QuickBookingCard: React.FC<QuickBookingCardProps> = ({
   const [endTime, setEndTime] = useState('10:00');
   const [participantCount, setParticipantCount] = useState(1);
   const [estimatedCost, setEstimatedCost] = useState(0);
+  const { toasts, showError, removeToast } = useToast();
   const navigate = useNavigate();
 
   const timeSlots = generateTimeSlots(8, 20, 30);
@@ -60,6 +63,37 @@ export const QuickBookingCard: React.FC<QuickBookingCardProps> = ({
   }, [startTime, endTime, space.price_per_hour]);
 
   const handleQuickBook = () => {
+    // Validate booking first
+    if (!isValidBooking()) {
+      const start = parse(startTime, 'HH:mm', new Date());
+      const end = parse(endTime, 'HH:mm', new Date());
+      
+      if (end <= start) {
+        showError('End time must be after start time');
+        return;
+      }
+      
+      if (participantCount <= 0) {
+        showError('Number of participants must be greater than 0');
+        return;
+      }
+      
+      if (participantCount > space.capacity) {
+        showError(`Maximum capacity is ${space.capacity} people`);
+        return;
+      }
+      
+      const selectedDateTime = new Date(selectedDate);
+      const now = new Date();
+      if (selectedDateTime < new Date(now.toDateString())) {
+        showError('Please select today or a future date');
+        return;
+      }
+      
+      showError('Please check your booking details');
+      return;
+    }
+
     const startDateTime = `${selectedDate}T${startTime}:00`;
     const endDateTime = `${selectedDate}T${endTime}:00`;
     
@@ -107,6 +141,9 @@ export const QuickBookingCard: React.FC<QuickBookingCardProps> = ({
 
   return (
     <div className={`bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-6 sticky top-4 ${className}`}>
+      {/* Toast Container for QuickBookingCard */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      
       <div className="space-y-4">
         {/* Header */}
         <div className="text-center pb-4 border-b border-gray-200 dark:border-gray-700">

@@ -9,7 +9,7 @@ interface RequestConfig {
 class ApiClient {
   private baseURL: string;
 
-  constructor(baseURL: string = import.meta.env.VITE_API_URL || 'http://localhost:3001/api') {
+  constructor(baseURL: string = import.meta.env.VITE_API_URL || 'http://localhost:8080/api/v1') {
     this.baseURL = baseURL;
   }
 
@@ -28,10 +28,12 @@ class ApiClient {
     }
 
     try {
+      const requestBody = config.body ? JSON.stringify(config.body) : undefined;
+      
       const response = await fetch(url, {
         method: config.method,
         headers,
-        body: config.body ? JSON.stringify(config.body) : undefined,
+        body: requestBody,
       });
 
       const data = await response.json();

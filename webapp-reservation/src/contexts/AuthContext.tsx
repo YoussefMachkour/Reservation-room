@@ -19,16 +19,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const token = localStorage.getItem('cohub-token');
         if (token) {
+          console.log('Found token, attempting to get current user...');
           const userData = await authService.getCurrentUser();
           if (userData) {
+            console.log('User data retrieved successfully:', userData);
             setUser(userData);
           } else {
+            console.warn('Failed to get user data, removing token');
             localStorage.removeItem('cohub-token');
+            setError('Session expired. Please log in again.');
           }
         }
       } catch (err) {
         console.error('Auth initialization error:', err);
         localStorage.removeItem('cohub-token');
+        setError('Authentication error. Please log in again.');
       } finally {
         setLoading(false);
       }
@@ -47,6 +52,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (result.success && result.user) {
         setUser(result.user);
         localStorage.setItem('cohub-token', result.token || '');
+        // Store refresh token if available
+        if (result.refreshToken) {
+          localStorage.setItem('cohub-refresh-token', result.refreshToken);
+        }
       } else {
         setError(result.message || 'Login failed');
       }
@@ -61,16 +70,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     }
   };
 
-  const register = async (name: string, email: string, password: string): Promise<AuthResult> => {
+  const register = async (firstName: string, lastName: string, email: string, password: string): Promise<AuthResult> => {
     setLoading(true);
     setError(null);
     
     try {
-      const result = await authService.register(name, email, password);
+      const result = await authService.register(firstName, lastName, email, password);
       
       if (result.success && result.user) {
         setUser(result.user);
         localStorage.setItem('cohub-token', result.token || '');
+        // Store refresh token if available
+        if (result.refreshToken) {
+          localStorage.setItem('cohub-refresh-token', result.refreshToken);
+        }
       } else {
         setError(result.message || 'Registration failed');
       }
@@ -95,6 +108,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     } finally {
       setUser(null);
       localStorage.removeItem('cohub-token');
+      localStorage.removeItem('cohub-refresh-token');
       setLoading(false);
     }
   };

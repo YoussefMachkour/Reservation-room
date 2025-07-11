@@ -17,13 +17,15 @@ import {
   EyeOff,
   Settings,
 } from "lucide-react";
-import { useAuth } from "../../contexts/AuthContext";
-import { useTheme } from "../../contexts/ThemeContext";
 import { User as UserType } from "../../types";
 import { Button } from "../../components/ui/button/Button";
 import { Input } from "../../components/ui/input/Input";
 import { ErrorMessage } from "../../components/ui/ErrorMessage";
 import { LoadingSpinner } from "../../components/ui/LoadingSpinner";
+import { useAuth } from "../../contexts/AuthContext";
+import { useTheme } from "../../contexts/ThemeContext";
+import { useToast } from "../../hooks/useToast";
+import { ToastContainer } from "../../components/ui/toast/Toast";
 
 interface UpdateProfileRequest {
   name?: string;
@@ -64,11 +66,12 @@ const isAdmin = (user: UserType): boolean => {
 };
 
 export const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading, error: authError } = useAuth();
   const { isDark } = useTheme();
+  const { toasts, showError, showSuccess, removeToast } = useToast();
 
   const [isEditing, setIsEditing] = useState(false);
-  const [loading, setSaving] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string>("");
   const [activeTab, setActiveTab] = useState<
     "profile" | "preferences" | "security"
@@ -118,10 +121,13 @@ export const ProfilePage: React.FC = () => {
 
       // In a real app, you would update the user state here
       console.log("Profile updated:", editedProfile);
+      showSuccess("Profile updated successfully!");
       setIsEditing(false);
     } catch (error) {
       console.error("Error updating profile:", error);
-      setError("Failed to update profile. Please try again.");
+      const errorMessage = "Failed to update profile. Please try again.";
+      setError(errorMessage);
+      showError(errorMessage);
     } finally {
       setSaving(false);
     }
@@ -240,6 +246,39 @@ export const ProfilePage: React.FC = () => {
     { id: "security", label: "Security", icon: Lock },
   ];
 
+  if (authLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  // Show error state if there's an auth error
+  if (authError && !user) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <div className="text-center">
+          <h2 className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+            Unable to Load Profile
+          </h2>
+          <p className={`mt-2 ${isDark ? "text-gray-300" : "text-gray-600"}`}>
+            {authError.includes('internal_server_error') 
+              ? 'Server is experiencing issues. Please try again later.'
+              : authError
+            }
+          </p>
+        </div>
+        <Button 
+          onClick={() => window.location.reload()}
+          variant="secondary"
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
   if (!user) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -250,6 +289,9 @@ export const ProfilePage: React.FC = () => {
 
   return (
     <div className="w-full space-y-6">
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -273,7 +315,7 @@ export const ProfilePage: React.FC = () => {
                   <X className="w-4 h-4 mr-2" />
                   Cancel
                 </Button>
-                <Button onClick={handleSave} loading={loading}>
+                <Button onClick={handleSave} loading={saving}>
                   <Save className="w-4 h-4 mr-2" />
                   Save Changes
                 </Button>
@@ -670,7 +712,7 @@ export const ProfilePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <Button onClick={savePreferences} loading={loading}>
+                  <Button onClick={savePreferences} loading={saving}>
                     Save Preferences
                   </Button>
                 </div>
@@ -778,7 +820,7 @@ export const ProfilePage: React.FC = () => {
                         <div className="flex gap-3">
                           <Button
                             onClick={handlePasswordChange}
-                            loading={loading}
+                            loading={saving}
                             disabled={
                               !passwordData.currentPassword ||
                               !passwordData.newPassword ||

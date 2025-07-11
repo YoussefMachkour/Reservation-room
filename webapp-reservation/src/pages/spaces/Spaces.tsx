@@ -10,14 +10,34 @@ import {
   Users,
   Clock,
   Calendar,
-  Star,
   Bookmark,
-  TrendingUp,
   Building2,
   X,
 } from "lucide-react";
-import { Space, SpaceFilters, SpaceType } from "../../types/space";
-import { mockSpaces, mockBuildings } from "../../mock/space";
+import { Space, SpaceFilters } from "../../types";
+
+// Define the space type that matches what this component expects
+interface ComponentSpace extends Space {
+  building: string;
+  floor: number;
+  room_number: string;
+  equipment: any[];
+  status: string;
+  price_per_hour: number;
+  price_per_day: number;
+  photos: string[];
+  max_booking_duration: number;
+}
+
+// Space type for filtering
+type SpaceTypeFilter = 
+  | 'meeting_room'
+  | 'office' 
+  | 'auditorium'
+  | 'open_space'
+  | 'hot_desk'
+  | 'conference_room';
+import { spaceService } from "../../services/api";
 import { SpaceCard } from "../../components/spaces/card/SpaceCard";
 
 export const SpacesPage: React.FC = () => {
@@ -25,13 +45,15 @@ export const SpacesPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
 
   // State
-  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [spaces, setSpaces] = useState<ComponentSpace[]>([]);
+  const [buildings, setBuildings] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState(
     searchParams.get("search") || ""
   );
   const [filters, setFilters] = useState<SpaceFilters>({
-    type: (searchParams.get("type") as SpaceType) || undefined,
+    type: searchParams.get("type") || undefined,
     building: searchParams.get("building") || undefined,
     capacity: searchParams.get("capacity")
       ? parseInt(searchParams.get("capacity")!)
@@ -45,7 +67,7 @@ export const SpacesPage: React.FC = () => {
   const [favoriteSpaces, setFavoriteSpaces] = useState<string[]>([]);
 
   // Space types for filtering
-  const spaceTypes: { value: SpaceType; label: string; icon: string }[] = [
+  const spaceTypes: { value: SpaceTypeFilter; label: string; icon: string }[] = [
     { value: "meeting_room", label: "Meeting Room", icon: "👥" },
     { value: "office", label: "Office", icon: "🏢" },
     { value: "auditorium", label: "Auditorium", icon: "🎭" },
@@ -54,14 +76,42 @@ export const SpacesPage: React.FC = () => {
     { value: "conference_room", label: "Conference Room", icon: "📊" },
   ];
 
+  // Mapping function to convert API Space to ComponentSpace
+  const mapApiSpaceToComponentSpace = (apiSpace: Space): ComponentSpace => {
+    return {
+      ...apiSpace,
+      building: apiSpace.location?.building || 'Unknown Building',
+      floor: apiSpace.location?.floor || 1,
+      room_number: apiSpace.location?.room || 'N/A',
+      equipment: apiSpace.amenities || [],
+      status: apiSpace.available ? 'available' : 'unavailable',
+      price_per_hour: apiSpace.pricePerHour,
+      price_per_day: apiSpace.pricePerDay,
+      photos: apiSpace.images || [],
+      max_booking_duration: 480, // Default 8 hours in minutes
+    };
+  };
+
   // Load data on component mount
   useEffect(() => {
     const loadSpaces = async () => {
       setLoading(true);
+      setError(null);
       try {
-        // Simulate API call
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        setSpaces(mockSpaces);
+        // Load spaces from API
+        const spacesResponse = await spaceService.getSpaces();
+        if (spacesResponse.success && spacesResponse.data) {
+          const mappedSpaces = spacesResponse.data.map(mapApiSpaceToComponentSpace);
+          setSpaces(mappedSpaces);
+        } else {
+          throw new Error(spacesResponse.message || 'Failed to load spaces');
+        }
+
+        // Load buildings from API
+        const buildingsResponse = await spaceService.getBuildings();
+        if (buildingsResponse.success && buildingsResponse.data) {
+          setBuildings(buildingsResponse.data);
+        }
 
         // Load favorites from localStorage
         const savedFavorites = localStorage.getItem("favoriteSpaces");
@@ -70,6 +120,7 @@ export const SpacesPage: React.FC = () => {
         }
       } catch (error) {
         console.error("Error loading spaces:", error);
+        setError(error instanceof Error ? error.message : 'Failed to load spaces');
       } finally {
         setLoading(false);
       }
@@ -95,11 +146,13 @@ export const SpacesPage: React.FC = () => {
   const filteredSpaces = spaces.filter((space) => {
     const matchesSearch =
       searchTerm === "" ||
-      space.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      space.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      space.building.toLowerCase().includes(searchTerm.toLowerCase());
+      space.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      space.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      space.building?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesType = !filters.type || space.type === filters.type;
+    const matchesType = !filters.type || 
+      (space.type?.slug === filters.type) || 
+      (space.type?.name?.toLowerCase().includes(filters.type.toLowerCase()));
     const matchesBuilding =
       !filters.building || space.building === filters.building;
     const matchesCapacity =
@@ -127,7 +180,7 @@ export const SpacesPage: React.FC = () => {
   };
 
   // Handlers
-  const handleBookSpace = (space: Space) => {
+  const handleBookSpace = (space: ComponentSpace) => {
     navigate(`/spaces/${space.id}`);
   };
 
@@ -178,6 +231,28 @@ export const SpacesPage: React.FC = () => {
             </div>
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-16 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <div className="w-24 h-24 mx-auto mb-6 bg-red-100 dark:bg-red-900 rounded-full flex items-center justify-center">
+          <Building2 className="w-12 h-12 text-red-500 dark:text-red-400" />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+          Error Loading Spaces
+        </h3>
+        <p className="text-gray-500 dark:text-gray-400 mb-6 max-w-md mx-auto">
+          {error}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          className="px-6 py-3 bg-blue-600 dark:bg-blue-500 text-white rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600 transition-colors shadow-sm"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
@@ -340,7 +415,7 @@ export const SpacesPage: React.FC = () => {
                   className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
                 >
                   <option value="">All Buildings</option>
-                  {mockBuildings.map((building) => (
+                  {buildings.map((building) => (
                     <option key={building} value={building}>
                       {building}
                     </option>
@@ -465,8 +540,8 @@ export const SpacesPage: React.FC = () => {
             viewMode === "grid" ? (
               <SpaceCard
                 key={space.id}
-                space={space}
-                onBookNow={handleBookSpace}
+                space={space as any} // Temporary type assertion for compatibility
+                onBookNow={handleBookSpace as any}
               />
             ) : (
               <SpaceListItem
@@ -486,8 +561,8 @@ export const SpacesPage: React.FC = () => {
 
 // List Item Component
 interface SpaceListItemProps {
-  space: Space;
-  onBookNow: (space: Space) => void;
+  space: ComponentSpace;
+  onBookNow: (space: ComponentSpace) => void;
   isFavorited: boolean;
   onToggleFavorite: () => void;
 }
@@ -500,11 +575,14 @@ const SpaceListItem: React.FC<SpaceListItemProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  const getSpaceTypeDisplay = (type: string) => {
-    return type
-      .split("_")
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(" ");
+  const getSpaceTypeDisplay = (type: any) => {
+    if (typeof type === 'string') {
+      return type
+        .split("_")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+    }
+    return type?.name || 'Unknown Type';
   };
 
   const getStatusColor = (status: string) => {

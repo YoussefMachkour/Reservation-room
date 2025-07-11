@@ -4,15 +4,14 @@ import { User, Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
 import { RegisterFormData, FormErrors } from "../../types";
-import { Input } from "../../components/ui/input/Input";
-import { Button } from "../../components/ui/button/Button";
 import { ErrorMessage } from "../../components/ui/ErrorMessage";
 
 export const RegisterPage: React.FC = () => {
   const { isDark } = useTheme();
   const { register, loading, error, clearError } = useAuth();
   const [formData, setFormData] = useState<RegisterFormData>({
-    name: "",
+    firstName: "",
+    lastName: "",
     email: "",
     password: "",
     confirmPassword: "",
@@ -24,10 +23,16 @@ export const RegisterPage: React.FC = () => {
   const validateForm = (): FormErrors => {
     const errors: FormErrors = {};
 
-    if (!formData.name.trim()) {
-      errors.name = "Full name is required";
-    } else if (formData.name.trim().length < 2) {
-      errors.name = "Name must be at least 2 characters";
+    if (!formData.firstName.trim()) {
+      errors.firstName = "First name is required";
+    } else if (formData.firstName.trim().length < 2) {
+      errors.firstName = "First name must be at least 2 characters";
+    }
+
+    if (!formData.lastName.trim()) {
+      errors.lastName = "Last name is required";
+    } else if (formData.lastName.trim().length < 2) {
+      errors.lastName = "Last name must be at least 2 characters";
     }
 
     if (!formData.email) {
@@ -38,8 +43,8 @@ export const RegisterPage: React.FC = () => {
 
     if (!formData.password) {
       errors.password = "Password is required";
-    } else if (formData.password.length < 6) {
-      errors.password = "Password must be at least 6 characters";
+    } else if (formData.password.length < 8) {
+      errors.password = "Password must be at least 8 characters";
     } else if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(formData.password)) {
       errors.password =
         "Password must contain at least one uppercase letter, one lowercase letter, and one number";
@@ -70,7 +75,8 @@ export const RegisterPage: React.FC = () => {
     setFormErrors({});
 
     const result = await register(
-      formData.name,
+      formData.firstName,
+      formData.lastName,
       formData.email,
       formData.password
     );
@@ -295,32 +301,61 @@ export const RegisterPage: React.FC = () => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Full Name Input */}
+            {/* First Name Input */}
             <div className="relative">
               <label
                 className={`block text-sm font-medium mb-2 ${
                   isDark ? "text-gray-300" : "text-gray-700"
                 }`}
               >
-                Full Name
+                First Name
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
-                  value={formData.name}
-                  onChange={(e) => handleChange("name", e.target.value)}
-                  placeholder="Enter your full name"
+                  value={formData.firstName}
+                  onChange={(e) => handleChange("firstName", e.target.value)}
+                  placeholder="Enter your first name"
                   className={`w-full pl-10 pr-4 py-3 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                     isDark
                       ? "bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
                       : "bg-white/50 border-gray-300 text-gray-900 placeholder-gray-500"
-                  } ${formErrors.name ? "border-red-500" : ""}`}
+                  } ${formErrors.firstName ? "border-red-500" : ""}`}
                   required
                 />
               </div>
-              {formErrors.name && (
-                <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>
+              {formErrors.firstName && (
+                <p className="text-red-500 text-sm mt-1">{formErrors.firstName}</p>
+              )}
+            </div>
+
+            {/* Last Name Input */}
+            <div className="relative">
+              <label
+                className={`block text-sm font-medium mb-2 ${
+                  isDark ? "text-gray-300" : "text-gray-700"
+                }`}
+              >
+                Last Name
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                <input
+                  type="text"
+                  value={formData.lastName}
+                  onChange={(e) => handleChange("lastName", e.target.value)}
+                  placeholder="Enter your last name"
+                  className={`w-full pl-10 pr-4 py-3 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    isDark
+                      ? "bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"
+                      : "bg-white/50 border-gray-300 text-gray-900 placeholder-gray-500"
+                  } ${formErrors.lastName ? "border-red-500" : ""}`}
+                  required
+                />
+              </div>
+              {formErrors.lastName && (
+                <p className="text-red-500 text-sm mt-1">{formErrors.lastName}</p>
               )}
             </div>
 
@@ -368,7 +403,7 @@ export const RegisterPage: React.FC = () => {
                   type={showPassword ? "text" : "password"}
                   value={formData.password}
                   onChange={(e) => handleChange("password", e.target.value)}
-                  placeholder="Create a strong password"
+                  placeholder="Create a strong password (min 8 characters)"
                   className={`w-full pl-10 pr-12 py-3 rounded-lg border transition-all duration-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
                     isDark
                       ? "bg-gray-700/50 border-gray-600 text-white placeholder-gray-400"

@@ -1,71 +1,24 @@
 import { User, AuthResult } from '../../types';
-import { apiClient } from '../api/apiClient';
-
-interface LoginResponse {
-  user: User;
-  token: string;
-}
-
-interface RegisterResponse {
-  user: User;
-  token: string;
-}
+import { authService as apiAuthService } from '../api/authService';
 
 class AuthService {
-  async login(email: string, password: string): Promise<AuthResult & { token?: string }> {
+  async login(email: string, password: string): Promise<AuthResult> {
     try {
-      // For now, simulate API call with mock data
-      // Replace this with actual API call when backend is ready
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await apiAuthService.login({ email, password });
       
-      // Mock successful login
-      if (email === 'admin@cohub.com') {
-        const mockUser: User = {
-          id: '1',
-          name: 'Admin User',
-          email: email,
-          role: 'admin',
-          avatar: undefined,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        return { 
-          success: true, 
-          user: mockUser, 
-          token: 'mock-admin-token-' + Date.now() 
-        };
-      } else if (email.includes('@')) {
-        const mockUser: User = {
-          id: '2',
-          name: email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
-          email: email,
-          role: 'user',
-          avatar: undefined,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-        
-        return { 
-          success: true, 
-          user: mockUser, 
-          token: 'mock-user-token-' + Date.now() 
+      if (response.success && response.data) {
+        return {
+          success: true,
+          user: response.data.user,
+          token: response.data.token,
+          refreshToken: response.data.refreshToken,
         };
       }
       
-      return { success: false, message: 'Invalid credentials' };
-      
-      // Uncomment when API is ready:
-      // const response = await apiClient.post<LoginResponse>('/auth/login', {
-      //   email,
-      //   password,
-      // });
-      // 
-      // return {
-      //   success: true,
-      //   user: response.data.user,
-      //   token: response.data.token,
-      // };
+      return {
+        success: false,
+        message: response.message || 'Invalid credentials',
+      };
     } catch (error) {
       return {
         success: false,
@@ -74,40 +27,23 @@ class AuthService {
     }
   }
 
-  async register(name: string, email: string, password: string): Promise<AuthResult & { token?: string }> {
+  async register(firstName: string, lastName: string, email: string, password: string): Promise<AuthResult> {
     try {
-      // For now, simulate API call with mock data
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const response = await apiAuthService.register({ firstName, lastName, email, password });
       
-      // Mock successful registration
-      const mockUser: User = {
-        id: Date.now().toString(),
-        name: name,
-        email: email,
-        role: 'user',
-        avatar: undefined,
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      if (response.success && response.data) {
+        return {
+          success: true,
+          user: response.data.user,
+          token: response.data.token,
+          refreshToken: response.data.refreshToken,
+        };
+      }
+      
+      return {
+        success: false,
+        message: response.message || 'Registration failed',
       };
-      
-      return { 
-        success: true, 
-        user: mockUser, 
-        token: 'mock-token-' + Date.now() 
-      };
-      
-      // Uncomment when API is ready:
-      // const response = await apiClient.post<RegisterResponse>('/auth/register', {
-      //   name,
-      //   email,
-      //   password,
-      // });
-      // 
-      // return {
-      //   success: true,
-      //   user: response.data.user,
-      //   token: response.data.token,
-      // };
     } catch (error) {
       return {
         success: false,
@@ -119,36 +55,47 @@ class AuthService {
   async getCurrentUser(): Promise<User | null> {
     try {
       const token = localStorage.getItem('cohub-token');
-      if (!token) return null;
+      if (!token) {
+        console.log('No token found');
+        return null;
+      }
 
-      // Mock user data based on token
-      if (token.includes('admin')) {
-        return {
-          id: '1',
-          name: 'Admin User',
-          email: 'admin@cohub.com',
-          role: 'admin',
-          avatar: undefined,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
-      } else {
-        return {
-          id: '2',
-          name: 'John Doe',
-          email: 'john@example.com',
-          role: 'user',
-          avatar: undefined,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        };
+      console.log('Attempting to get profile with token...');
+      const response = await apiAuthService.getProfile();
+      
+      if (response.success && response.data) {
+        console.log('Profile retrieved successfully:', response.data);
+        return response.data;
       }
       
-      // Uncomment when API is ready:
-      // const response = await apiClient.get<User>('/auth/me');
-      // return response.data;
-    } catch (error) {
+      console.error('Failed to get profile:', response.message);
+      
+      // If it's a server error, we might want to keep the token for retry
+      if (response.message?.includes('internal_server_error') || response.message?.includes('500')) {
+        console.warn('Server error detected, keeping token for potential retry');
+        // Don't clear token for server errors - user might want to retry
+        return null;
+      }
+      
+      // For auth errors (401, 403), clear the token
+      if (response.message?.includes('Unauthorized') || response.message?.includes('401') || response.message?.includes('403')) {
+        console.warn('Auth error detected, clearing token');
+        localStorage.removeItem('cohub-token');
+      }
+      
+      return null;
+    } catch (error: any) {
       console.error('Get current user error:', error);
+      
+      // Check if it's a network error or server error
+      if (error.message?.includes('500') || error.message?.includes('internal_server_error') || 
+          error.message?.includes('Network Error') || error.message?.includes('fetch')) {
+        console.warn('Network/Server error, keeping token for retry');
+        return null;
+      }
+      
+      // For other errors, clear token
+      localStorage.removeItem('cohub-token');
       return null;
     }
   }
@@ -168,17 +115,23 @@ class AuthService {
 
   async refreshToken(): Promise<string | null> {
     try {
-      // Mock token refresh
       const currentToken = localStorage.getItem('cohub-token');
       if (!currentToken) return null;
       
-      const newToken = currentToken.replace(/\d+$/, Date.now().toString());
-      localStorage.setItem('cohub-token', newToken);
-      return newToken;
+      // For now, we don't have a refresh token in localStorage, so we'll skip this
+      // In a real implementation, you'd store and retrieve the refresh token
+      const refreshToken = localStorage.getItem('cohub-refresh-token');
+      if (!refreshToken) return null;
       
-      // Uncomment when API is ready:
-      // const response = await apiClient.post<{ token: string }>('/auth/refresh');
-      // return response.data.token;
+      const response = await apiAuthService.refreshToken({ refreshToken });
+      
+      if (response.success && response.data) {
+        localStorage.setItem('cohub-token', response.data.token);
+        localStorage.setItem('cohub-refresh-token', response.data.refreshToken);
+        return response.data.token;
+      }
+      
+      return null;
     } catch (error) {
       console.error('Token refresh error:', error);
       return null;

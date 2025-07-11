@@ -16,7 +16,7 @@ export interface AuthContextType {
   loading: boolean;
   error: string | null;
   login: (email: string, password: string) => Promise<AuthResult>;
-  register: (name: string, email: string, password: string) => Promise<AuthResult>;
+  register: (firstName: string, lastName: string, email: string, password: string) => Promise<AuthResult>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
@@ -25,6 +25,8 @@ export interface AuthResult {
   success: boolean;
   message?: string;
   user?: User;
+  token?: string;
+  refreshToken?: string;
 }
 
 // Theme Types
@@ -40,7 +42,8 @@ export interface LoginFormData {
 }
 
 export interface RegisterFormData {
-  name: string;
+  firstName: string;
+  lastName: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -149,9 +152,11 @@ export interface DashboardStats {
 // Filter Types
 export interface SpaceFilters {
   type?: string;
+  building?: string;
   capacity?: number;
   minPrice?: number;
   maxPrice?: number;
+  priceRange?: [number, number];
   amenities?: string[];
   availability?: {
     date: string;
