@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    /* Define your color variables */
+    --color-background: 255 255 255;
+    --color-foreground: 15 23 42;
+    --color-primary: 59 130 246;
+    --color-primary-foreground: 255 255 255;
+    --color-secondary: 241 245 249;
+    --color-secondary-foreground: 15 23 42;
+    --color-border: 226 232 240;
+    --color-ring: 59 130 246;
+  }
+
+  .dark {
+    --color-background: 15 23 42;
+    --color-foreground: 241 245 249;
+    --color-primary: 59 130 246;
+    --color-primary-foreground: 255 255 255;
+    --color-secondary: 30 41 59;
+    --color-secondary-foreground: 241 245 249;
+    --color-border: 51 65 85;
+    --color-ring: 59 130 246;
+  }
+
+  * {
+    border-color: rgb(var(--color-border));
+  }
+  
+  body {
+    background-color: rgb(var(--color-background));
+    color: rgb(var(--color-foreground));
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2;
+    @apply disabled:pointer-events-none disabled:opacity-50;
+  }
+  
+  .btn-primary {
+    background-color: rgb(var(--color-primary));
+    color: rgb(var(--color-primary-foreground));
+  }
+  
+  .btn-primary:hover {
+    background-color: rgb(var(--color-primary) / 0.9);
+  }
+  
+  .btn-secondary {
+    background-color: rgb(var(--color-secondary));
+    color: rgb(var(--color-secondary-foreground));
+  }
+  
+  .btn-secondary:hover {
+    background-color: rgb(var(--color-secondary) / 0.8);
+  }
+}
+
+@layer utilities {
+  .bg-background {
+    background-color: rgb(var(--color-background));
+  }
+  
+  .text-foreground {
+    color: rgb(var(--color-foreground));
+  }
+  
+  .bg-primary {
+    background-color: rgb(var(--color-primary));
+  }
+  
+  .text-primary-foreground {
+    color: rgb(var(--color-primary-foreground));
+  }
+  
+  .bg-secondary {
+    background-color: rgb(var(--color-secondary));
+  }
+  
+  .text-secondary-foreground {
+    color: rgb(var(--color-secondary-foreground));
+  }
+}
