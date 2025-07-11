@@ -68,7 +68,7 @@ type ConversationResponse struct {
 	ID              uuid.UUID                         `json:"id"`
 	Title           *string                           `json:"title,omitempty"`
 	Participants    []ConversationParticipantResponse `json:"participants"`
-	LastMessage     *MessageResponse                  `json:"last_message,omitempty"`
+	LastMessage     *ChatMessageResponse              `json:"last_message,omitempty"`
 	LastMessageAt   time.Time                         `json:"last_message_at"`
 	UnreadCount     int                               `json:"unread_count"`
 	IsArchived      bool                              `json:"is_archived"`
@@ -102,11 +102,11 @@ type ConversationListResponse struct {
 
 // MessageListResponse represents a paginated list of messages
 type MessageListResponse struct {
-	Messages   []MessageResponse `json:"messages"`
-	TotalCount int64             `json:"total_count"`
-	HasMore    bool              `json:"has_more"`
-	NextCursor *string           `json:"next_cursor,omitempty"`
-	PrevCursor *string           `json:"prev_cursor,omitempty"`
+	Messages   []ChatMessageResponse `json:"messages"`
+	TotalCount int64                 `json:"total_count"`
+	HasMore    bool                  `json:"has_more"`
+	NextCursor *string               `json:"next_cursor,omitempty"`
+	PrevCursor *string               `json:"prev_cursor,omitempty"`
 }
 
 // ReadReceiptResponse represents a message read receipt
@@ -187,7 +187,7 @@ type MessageSearchResponse struct {
 
 // MessageSearchResult represents a single message search result
 type MessageSearchResult struct {
-	Message      MessageResponse      `json:"message"`
+	Message      ChatMessageResponse  `json:"message"`
 	Conversation ConversationResponse `json:"conversation"`
 	Highlights   []string             `json:"highlights,omitempty"`
 	Score        float64              `json:"score,omitempty"`

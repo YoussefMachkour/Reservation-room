@@ -14,39 +14,42 @@ import (
 
 	"room-reservation-api/internal/dto"
 	"room-reservation-api/internal/models"
-	"room-reservation-api/internal/repositories"
+	"room-reservation-api/internal/repositories/interfaces"
+	"room-reservation-api/internal/websocket"
 
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
-type chatService struct {
-	chatRepo repositories.ChatRepository
-	userRepo repositories.UserRepository // Assuming you have this
-	logger   *slog.Logger
-	// wsManager *websocket.Manager // We'll add this later
+type ChatService struct {
+	chatRepo  interfaces.ChatRepository
+	userRepo  interfaces.UserRepositoryInterface
+	logger    *slog.Logger
+	wsManager *websocket.Manager // We'll add this later
 	// fileService FileService      // For file upload handling
 }
 
 // NewChatService creates a new chat service instance
 func NewChatService(
-	chatRepo repositories.ChatRepository,
-	userRepo repositories.UserRepository,
+	chatRepo interfaces.ChatRepository,
+	userRepo interfaces.UserRepositoryInterface,
 	logger *slog.Logger,
-) ChatService {
-	return &chatService{
-		chatRepo: chatRepo,
-		userRepo: userRepo,
-		logger:   logger,
+	wsManager *websocket.Manager, // Add this parameter
+) *ChatService {
+	return &ChatService{
+		chatRepo:  chatRepo,
+		userRepo:  userRepo,
+		logger:    logger,
+		wsManager: wsManager, // Set the field
 	}
 }
 
 // Conversation operations
 
-func (s *chatService) CreateConversation(ctx context.Context, userID uuid.UUID, req *dto.CreateConversationRequest) (*dto.ConversationResponse, error) {
+func (s *ChatService) CreateConversation(ctx context.Context, userID uuid.UUID, req *dto.CreateConversationRequest) (*dto.ConversationResponse, error) {
 	// Validate participants exist
 	for _, participantID := range req.ParticipantIDs {
-		if _, err := s.userRepo.GetByID(ctx, participantID); err != nil {
+		if _, err := s.userRepo.GetByID(participantID); err != nil {
 			return nil, fmt.Errorf("participant %s not found", participantID)
 		}
 	}
@@ -98,10 +101,54 @@ func (s *chatService) CreateConversation(ctx context.Context, userID uuid.UUID, 
 		return nil, fmt.Errorf("failed to get created conversation: %w", err)
 	}
 
-	return s.mapConversationToResponse(createdConversation, userID), nil
+	response := s.mapConversationToResponse(createdConversation, userID)
+
+	// Broadcast conversation creation via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		conversationData := websocket.ConversationEventData{
+			ConversationID: createdConversation.ID,
+			Title:          *createdConversation.Title,
+			Status:         string(createdConversation.Status),
+			Priority:       string(createdConversation.Priority),
+			Tags:           createdConversation.Tags,
+			UpdatedAt:      createdConversation.CreatedAt,
+		}
+
+		// Add participants data
+		participants := make([]websocket.ParticipantData, len(createdConversation.Participants))
+		for i, p := range createdConversation.Participants {
+			isOnline := false
+			if s.wsManager != nil {
+				presence := s.wsManager.GetUserPresence(p.UserID)
+				isOnline = presence.IsOnline
+			}
+
+			participants[i] = websocket.ParticipantData{
+				UserID:   p.UserID,
+				Role:     string(p.UserType),
+				JoinedAt: p.JoinedAt,
+				IsOnline: isOnline,
+			}
+		}
+		conversationData.Participants = participants
+
+		// Add unread count and last message info
+		if !createdConversation.LastMessageAt.IsZero() {
+			conversationData.LastMessageAt = &createdConversation.LastMessageAt
+		}
+		conversationData.UnreadCount = 0 // New conversation starts with no unread messages
+
+		s.wsManager.BroadcastConversationCreated(conversationData)
+
+		s.logger.Info("Broadcasted conversation creation",
+			"conversationID", createdConversation.ID,
+			"participantCount", len(participants))
+	}
+
+	return response, nil
 }
 
-func (s *chatService) GetConversations(ctx context.Context, userID uuid.UUID, req *dto.GetConversationsRequest) (*dto.ConversationListResponse, error) {
+func (s *ChatService) GetConversations(ctx context.Context, userID uuid.UUID, req *dto.GetConversationsRequest) (*dto.ConversationListResponse, error) {
 	conversations, total, err := s.chatRepo.GetConversationsByUserID(ctx, userID, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get conversations: %w", err)
@@ -137,7 +184,7 @@ func (s *chatService) GetConversations(ctx context.Context, userID uuid.UUID, re
 	return response, nil
 }
 
-func (s *chatService) GetConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (*dto.ConversationResponse, error) {
+func (s *ChatService) GetConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (*dto.ConversationResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -158,7 +205,7 @@ func (s *chatService) GetConversation(ctx context.Context, userID uuid.UUID, con
 	return s.mapConversationToResponse(conversation, userID), nil
 }
 
-func (s *chatService) UpdateConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.UpdateConversationRequest) (*dto.ConversationResponse, error) {
+func (s *ChatService) UpdateConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.UpdateConversationRequest) (*dto.ConversationResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -170,39 +217,142 @@ func (s *chatService) UpdateConversation(ctx context.Context, userID uuid.UUID, 
 
 	conversation, err := s.chatRepo.GetConversationByID(ctx, conversationID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("conversation not found")
+		}
 		return nil, fmt.Errorf("failed to get conversation: %w", err)
 	}
 
+	// Store original values for change detection
+	originalStatus := conversation.Status
+	originalPriority := conversation.Priority
+	originalTitle := conversation.Title
+	originalTags := conversation.Tags
+	originalAssignedAgentID := conversation.AssignedAgentID
+	originalArchived := conversation.IsArchived
+
+	// Track what changed for logging
+	changes := make(map[string]interface{})
+
 	// Update fields
-	if req.Status != nil {
+	if req.Status != nil && string(conversation.Status) != *req.Status {
 		conversation.Status = models.ConversationStatus(*req.Status)
+		changes["status"] = map[string]string{"from": string(originalStatus), "to": *req.Status}
 	}
-	if req.Priority != nil {
+	if req.Priority != nil && string(conversation.Priority) != *req.Priority {
 		conversation.Priority = models.ConversationPriority(*req.Priority)
+		changes["priority"] = map[string]string{"from": string(originalPriority), "to": *req.Priority}
 	}
 	if req.AssignedAgentID != nil {
 		conversation.AssignedAgentID = req.AssignedAgentID
+		changes["assignedAgent"] = map[string]interface{}{
+			"from": originalAssignedAgentID,
+			"to":   req.AssignedAgentID,
+		}
 	}
 	if req.Tags != nil {
 		conversation.Tags = *req.Tags
+		changes["tags"] = map[string]interface{}{
+			"from": originalTags,
+			"to":   *req.Tags,
+		}
 	}
-	if req.IsArchived != nil {
+	if req.IsArchived != nil && conversation.IsArchived != *req.IsArchived {
 		conversation.IsArchived = *req.IsArchived
+		changes["archived"] = map[string]bool{"from": originalArchived, "to": *req.IsArchived}
 	}
-	if req.Title != nil {
+	if req.Title != nil && (conversation.Title == nil || *conversation.Title != *req.Title) {
 		conversation.Title = req.Title
+		changes["title"] = map[string]interface{}{
+			"from": originalTitle,
+			"to":   req.Title,
+		}
+	}
+
+	// Only update if there are actual changes
+	if len(changes) == 0 {
+		s.logger.Debug("No changes detected for conversation update", "conversationID", conversationID)
+		return s.mapConversationToResponse(conversation, userID), nil
 	}
 
 	if err := s.chatRepo.UpdateConversation(ctx, conversation); err != nil {
 		return nil, fmt.Errorf("failed to update conversation: %w", err)
 	}
 
-	// TODO: Broadcast conversation update via WebSocket
+	// Broadcast conversation update via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		conversationData := websocket.ConversationEventData{
+			ConversationID: conversation.ID,
+			Title: func() string {
+				if conversation.Title != nil {
+					return *conversation.Title
+				}
+				return ""
+			}(),
+			Status:    string(conversation.Status),
+			Priority:  string(conversation.Priority),
+			Tags:      conversation.Tags,
+			UpdatedAt: time.Now(),
+		}
+
+		// Add participants data
+		participants := make([]websocket.ParticipantData, len(conversation.Participants))
+		for i, p := range conversation.Participants {
+			isOnline := false
+			var lastSeen *time.Time
+			if s.wsManager != nil {
+				presence := s.wsManager.GetUserPresence(p.UserID)
+				isOnline = presence.IsOnline
+				if !presence.LastSeen.IsZero() {
+					lastSeen = &presence.LastSeen
+				}
+			}
+
+			participants[i] = websocket.ParticipantData{
+				UserID:   p.UserID,
+				Role:     string(p.UserType),
+				JoinedAt: p.JoinedAt,
+				IsOnline: isOnline,
+				LastSeen: lastSeen,
+			}
+		}
+		conversationData.Participants = participants
+
+		// Add unread count and last message info
+		if !conversation.LastMessageAt.IsZero() {
+			conversationData.LastMessageAt = &conversation.LastMessageAt
+		}
+
+		// Calculate unread count for the conversation
+		totalUnread := 0
+		for _, participant := range conversation.Participants {
+			totalUnread += participant.UnreadCount
+		}
+		conversationData.UnreadCount = totalUnread
+
+		// Add metadata about what changed
+		conversationData.Metadata = map[string]interface{}{
+			"changes":   changes,
+			"updatedBy": userID,
+		}
+
+		s.wsManager.BroadcastConversationUpdated(conversationID, conversationData, &userID)
+
+		s.logger.Info("Broadcasted conversation update",
+			"conversationID", conversationID,
+			"updatedBy", userID,
+			"changeCount", len(changes))
+	}
+
+	s.logger.Info("Conversation updated successfully",
+		"conversationID", conversationID,
+		"updatedBy", userID,
+		"changes", changes)
 
 	return s.mapConversationToResponse(conversation, userID), nil
 }
 
-func (s *chatService) ArchiveConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
+func (s *ChatService) ArchiveConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
 		return err
@@ -211,10 +361,19 @@ func (s *chatService) ArchiveConversation(ctx context.Context, userID uuid.UUID,
 		return errors.New("access denied")
 	}
 
-	return s.chatRepo.ArchiveConversation(ctx, conversationID, true)
+	if err := s.chatRepo.ArchiveConversation(ctx, conversationID, true); err != nil {
+		return err
+	}
+
+	// NEW: Broadcast conversation archived via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		s.wsManager.BroadcastConversationArchived(conversationID, userID)
+	}
+
+	return nil
 }
 
-func (s *chatService) DeleteConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
+func (s *ChatService) DeleteConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
 	// Only admins or conversation creators can delete
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -238,7 +397,7 @@ func (s *chatService) DeleteConversation(ctx context.Context, userID uuid.UUID, 
 
 // Message operations
 
-func (s *chatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dto.SendMessageRequest) (*dto.MessageResponse, error) {
+func (s *ChatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dto.SendMessageRequest) (*dto.ChatMessageResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, req.ConversationID)
 	if err != nil {
@@ -249,7 +408,7 @@ func (s *chatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dt
 	}
 
 	// Get user info
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user: %w", err)
 	}
@@ -268,6 +427,18 @@ func (s *chatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dt
 		SenderType:     senderType,
 		Content:        req.Content,
 		MessageType:    models.MessageType(req.Type),
+	}
+
+	// Set reply information if provided
+	if req.ReplyToID != nil {
+		// Validate that the reply-to message exists and is in the same conversation
+		replyToMessage, err := s.chatRepo.GetMessageByID(ctx, *req.ReplyToID)
+		if err != nil {
+			return nil, fmt.Errorf("reply-to message not found: %w", err)
+		}
+		if replyToMessage.ConversationID != req.ConversationID {
+			return nil, errors.New("reply-to message must be in the same conversation")
+		}
 	}
 
 	// Add metadata if provided
@@ -296,7 +467,10 @@ func (s *chatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dt
 		}
 
 		if err := s.chatRepo.CreateMessageAttachment(ctx, attachment); err != nil {
-			s.logger.Warn("Failed to create attachment", "error", err)
+			s.logger.Warn("Failed to create attachment",
+				"messageID", message.ID,
+				"fileName", attachmentReq.FileName,
+				"error", err)
 		}
 	}
 
@@ -306,13 +480,67 @@ func (s *chatService) SendMessage(ctx context.Context, userID uuid.UUID, req *dt
 		return nil, fmt.Errorf("failed to get complete message: %w", err)
 	}
 
-	// TODO: Broadcast message via WebSocket
-	// s.wsManager.BroadcastToConversation(req.ConversationID, WSEventMessageSent, completeMessage, &userID)
+	// Broadcast message via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		messageData := websocket.MessageEventData{
+			MessageID:      completeMessage.ID,
+			ConversationID: completeMessage.ConversationID,
+			UserID:         completeMessage.SenderID,
+			Content:        completeMessage.Content,
+			MessageType:    string(completeMessage.MessageType),
+			CreatedAt:      completeMessage.CreatedAt,
+		}
+
+		// Add attachments if any
+		if len(completeMessage.Attachments) > 0 {
+			attachments := make([]websocket.AttachmentData, len(completeMessage.Attachments))
+			for i, att := range completeMessage.Attachments {
+				thumbnailURL := ""
+				if att.ThumbnailURL != nil {
+					thumbnailURL = *att.ThumbnailURL
+				}
+
+				attachments[i] = websocket.AttachmentData{
+					ID:           att.ID,
+					FileName:     att.FileName,
+					FileSize:     att.FileSize,
+					FileType:     att.FileType,
+					FileURL:      att.FileURL,
+					ThumbnailURL: thumbnailURL,
+					UploadedAt:   att.CreatedAt,
+				}
+			}
+			messageData.Attachments = attachments
+		}
+
+		// Add metadata if present
+		if completeMessage.Metadata != nil {
+			var metadata map[string]interface{}
+			if err := json.Unmarshal([]byte(*completeMessage.Metadata), &metadata); err == nil {
+				messageData.Metadata = metadata
+			}
+		}
+
+		s.wsManager.BroadcastMessageSent(req.ConversationID, messageData, &userID)
+
+		s.logger.Info("Broadcasted new message",
+			"messageID", completeMessage.ID,
+			"conversationID", req.ConversationID,
+			"senderID", userID,
+			"hasAttachments", len(completeMessage.Attachments) > 0)
+	}
+
+	s.logger.Info("Message sent successfully",
+		"messageID", completeMessage.ID,
+		"conversationID", req.ConversationID,
+		"senderID", userID,
+		"contentLength", len(completeMessage.Content),
+		"attachmentCount", len(completeMessage.Attachments))
 
 	return s.mapMessageToResponse(completeMessage, userID), nil
 }
 
-func (s *chatService) GetMessages(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.GetMessagesRequest) (*dto.MessageListResponse, error) {
+func (s *ChatService) GetMessages(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.GetMessagesRequest) (*dto.MessageListResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -328,7 +556,7 @@ func (s *chatService) GetMessages(ctx context.Context, userID uuid.UUID, convers
 	}
 
 	response := &dto.MessageListResponse{
-		Messages:   make([]dto.MessageResponse, len(messages)),
+		Messages:   make([]dto.ChatMessageResponse, len(messages)),
 		TotalCount: total,
 		HasMore:    int64(req.Offset+req.Limit) < total,
 	}
@@ -352,7 +580,7 @@ func (s *chatService) GetMessages(ctx context.Context, userID uuid.UUID, convers
 	return response, nil
 }
 
-func (s *chatService) UpdateMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID, req *dto.UpdateMessageRequest) (*dto.MessageResponse, error) {
+func (s *ChatService) UpdateMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID, req *dto.UpdateMessageRequest) (*dto.ChatMessageResponse, error) {
 	// Check permissions
 	canModify, err := s.CanUserModifyMessage(ctx, userID, messageID)
 	if err != nil {
@@ -364,8 +592,14 @@ func (s *chatService) UpdateMessage(ctx context.Context, userID uuid.UUID, messa
 
 	message, err := s.chatRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("message not found")
+		}
 		return nil, fmt.Errorf("failed to get message: %w", err)
 	}
+
+	// Store original content for logging
+	originalContent := message.Content
 
 	// Update message
 	message.Content = req.Content
@@ -377,12 +611,72 @@ func (s *chatService) UpdateMessage(ctx context.Context, userID uuid.UUID, messa
 		return nil, fmt.Errorf("failed to update message: %w", err)
 	}
 
-	// TODO: Broadcast message update via WebSocket
+	// Broadcast message update via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		messageData := websocket.MessageEventData{
+			MessageID:      message.ID,
+			ConversationID: message.ConversationID,
+			UserID:         message.SenderID,
+			Content:        message.Content,
+			MessageType:    string(message.MessageType),
+			EditedAt:       message.EditedAt,
+			CreatedAt:      message.CreatedAt,
+		}
+
+		// Add attachments if any
+		if len(message.Attachments) > 0 {
+			attachments := make([]websocket.AttachmentData, len(message.Attachments))
+			for i, att := range message.Attachments {
+				thumbnailURL := ""
+				if att.ThumbnailURL != nil {
+					thumbnailURL = *att.ThumbnailURL
+				}
+
+				attachments[i] = websocket.AttachmentData{
+					ID:           att.ID,
+					FileName:     att.FileName,
+					FileSize:     att.FileSize,
+					FileType:     att.FileType,
+					FileURL:      att.FileURL,
+					ThumbnailURL: thumbnailURL,
+					UploadedAt:   att.CreatedAt,
+				}
+			}
+			messageData.Attachments = attachments
+		}
+
+		// Add metadata if present
+		if message.Metadata != nil {
+			var metadata map[string]interface{}
+			if err := json.Unmarshal([]byte(*message.Metadata), &metadata); err == nil {
+				messageData.Metadata = metadata
+			}
+		}
+
+		s.wsManager.BroadcastMessageUpdated(message.ConversationID, messageData, &userID)
+
+		s.logger.Info("Broadcasted message update",
+			"messageID", messageID,
+			"conversationID", message.ConversationID,
+			"userID", userID)
+	}
+
+	s.logger.Info("Message updated",
+		"messageID", messageID,
+		"userID", userID,
+		"originalLength", len(originalContent),
+		"newLength", len(message.Content))
 
 	return s.mapMessageToResponse(message, userID), nil
 }
 
-func (s *chatService) DeleteMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) error {
+func (s *ChatService) DeleteMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) error {
+	// Get message info before deletion for broadcasting
+	message, err := s.chatRepo.GetMessageByID(ctx, messageID)
+	if err != nil {
+		return fmt.Errorf("failed to get message: %w", err)
+	}
+
 	canModify, err := s.CanUserModifyMessage(ctx, userID, messageID)
 	if err != nil {
 		return err
@@ -391,10 +685,18 @@ func (s *chatService) DeleteMessage(ctx context.Context, userID uuid.UUID, messa
 		return errors.New("access denied")
 	}
 
-	return s.chatRepo.DeleteMessage(ctx, messageID)
-}
+	if err := s.chatRepo.DeleteMessage(ctx, messageID); err != nil {
+		return err
+	}
 
-func (s *chatService) SearchMessages(ctx context.Context, userID uuid.UUID, req *dto.SearchMessagesRequest) (*dto.MessageSearchResponse, error) {
+	// NEW: Broadcast message deletion via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		s.wsManager.BroadcastMessageDeleted(message.ConversationID, messageID, userID)
+	}
+
+	return nil
+}
+func (s *ChatService) SearchMessages(ctx context.Context, userID uuid.UUID, req *dto.SearchMessagesRequest) (*dto.MessageSearchResponse, error) {
 	messages, total, err := s.chatRepo.SearchMessages(ctx, userID, req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to search messages: %w", err)
@@ -429,7 +731,7 @@ func (s *chatService) SearchMessages(ctx context.Context, userID uuid.UUID, req 
 
 // Participant operations
 
-func (s *chatService) AddParticipant(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.AddParticipantRequest) error {
+func (s *ChatService) AddParticipant(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.AddParticipantRequest) error {
 	// Check permissions - only admins can add participants
 	participant, err := s.chatRepo.GetParticipantByUserAndConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -440,7 +742,7 @@ func (s *chatService) AddParticipant(ctx context.Context, userID uuid.UUID, conv
 	}
 
 	// Check if user exists
-	if _, err := s.userRepo.GetByID(ctx, req.UserID); err != nil {
+	if _, err := s.userRepo.GetByID(req.UserID); err != nil {
 		return fmt.Errorf("user not found: %w", err)
 	}
 
@@ -458,7 +760,7 @@ func (s *chatService) AddParticipant(ctx context.Context, userID uuid.UUID, conv
 	return s.chatRepo.AddParticipant(ctx, newParticipant)
 }
 
-func (s *chatService) RemoveParticipant(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.RemoveParticipantRequest) error {
+func (s *ChatService) RemoveParticipant(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, req *dto.RemoveParticipantRequest) error {
 	// Check permissions - only admins can remove participants
 	participant, err := s.chatRepo.GetParticipantByUserAndConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -471,7 +773,7 @@ func (s *chatService) RemoveParticipant(ctx context.Context, userID uuid.UUID, c
 	return s.chatRepo.RemoveParticipant(ctx, conversationID, req.UserID)
 }
 
-func (s *chatService) LeaveConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
+func (s *ChatService) LeaveConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) error {
 	// Check if user is participant
 	if exists, err := s.chatRepo.IsUserParticipant(ctx, userID, conversationID); err != nil {
 		return err
@@ -484,12 +786,14 @@ func (s *chatService) LeaveConversation(ctx context.Context, userID uuid.UUID, c
 
 // Read receipt operations
 
-func (s *chatService) MarkMessagesAsRead(ctx context.Context, userID uuid.UUID, req *dto.MarkMessagesReadRequest) error {
+func (s *ChatService) MarkMessagesAsRead(ctx context.Context, userID uuid.UUID, req *dto.MarkMessagesReadRequest) error {
 	// Verify user has access to all messages
+	conversationMessages := make(map[uuid.UUID][]uuid.UUID)
+
 	for _, messageID := range req.MessageIDs {
 		message, err := s.chatRepo.GetMessageByID(ctx, messageID)
 		if err != nil {
-			return fmt.Errorf("message not found: %w", err)
+			return fmt.Errorf("message %s not found: %w", messageID, err)
 		}
 
 		canAccess, err := s.CanUserAccessConversation(ctx, userID, message.ConversationID)
@@ -497,20 +801,49 @@ func (s *chatService) MarkMessagesAsRead(ctx context.Context, userID uuid.UUID, 
 			return err
 		}
 		if !canAccess {
-			return errors.New("access denied to message")
+			return fmt.Errorf("access denied to message %s", messageID)
 		}
+
+		// Group messages by conversation for efficient broadcasting
+		conversationMessages[message.ConversationID] = append(conversationMessages[message.ConversationID], messageID)
 	}
 
+	// Mark messages as read in database
 	if err := s.chatRepo.MarkMultipleMessagesAsRead(ctx, req.MessageIDs, userID); err != nil {
 		return fmt.Errorf("failed to mark messages as read: %w", err)
 	}
 
-	// TODO: Broadcast read receipts via WebSocket
+	// Broadcast read receipts via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		readTime := time.Now()
+
+		// Broadcast read receipts for each conversation
+		for conversationID, messageIDs := range conversationMessages {
+			readData := websocket.ReadReceiptEventData{
+				ConversationID: conversationID,
+				UserID:         userID,
+				MessageIDs:     messageIDs,
+				ReadAt:         readTime,
+			}
+
+			s.wsManager.BroadcastMessageRead(conversationID, readData, &userID)
+
+			s.logger.Debug("Broadcasted read receipts",
+				"conversationID", conversationID,
+				"userID", userID,
+				"messageCount", len(messageIDs))
+		}
+	}
+
+	s.logger.Info("Marked messages as read",
+		"userID", userID,
+		"messageCount", len(req.MessageIDs),
+		"conversationCount", len(conversationMessages))
 
 	return nil
 }
 
-func (s *chatService) GetReadReceipts(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) ([]dto.ReadReceiptResponse, error) {
+func (s *ChatService) GetReadReceipts(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) ([]dto.ReadReceiptResponse, error) {
 	message, err := s.chatRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
 		return nil, fmt.Errorf("message not found: %w", err)
@@ -545,7 +878,7 @@ func (s *chatService) GetReadReceipts(ctx context.Context, userID uuid.UUID, mes
 
 // File operations
 
-func (s *chatService) UploadFile(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, file multipart.File, header *multipart.FileHeader) (*dto.FileUploadResponse, error) {
+func (s *ChatService) UploadFile(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID, file multipart.File, header *multipart.FileHeader) (*dto.FileUploadResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -593,16 +926,16 @@ func (s *chatService) UploadFile(ctx context.Context, userID uuid.UUID, conversa
 	return response, nil
 }
 
-func (s *chatService) DeleteAttachment(ctx context.Context, userID uuid.UUID, attachmentID uuid.UUID) error {
+func (s *ChatService) DeleteAttachment(ctx context.Context, userID uuid.UUID, attachmentID uuid.UUID) error {
 	// TODO: Implement attachment deletion with permission checks
 	return s.chatRepo.DeleteAttachment(ctx, attachmentID)
 }
 
 // Support agent operations
 
-func (s *chatService) CreateSupportAgent(ctx context.Context, adminUserID uuid.UUID, req *dto.CreateSupportAgentRequest) (*dto.SupportAgentResponse, error) {
+func (s *ChatService) CreateSupportAgent(ctx context.Context, adminUserID uuid.UUID, req *dto.CreateSupportAgentRequest) (*dto.SupportAgentResponse, error) {
 	// Check if requester is admin
-	admin, err := s.userRepo.GetByID(ctx, adminUserID)
+	admin, err := s.userRepo.GetByID(adminUserID)
 	if err != nil {
 		return nil, fmt.Errorf("admin user not found: %w", err)
 	}
@@ -611,7 +944,7 @@ func (s *chatService) CreateSupportAgent(ctx context.Context, adminUserID uuid.U
 	}
 
 	// Check if user exists
-	user, err := s.userRepo.GetByID(ctx, req.UserID)
+	user, err := s.userRepo.GetByID(req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
@@ -648,7 +981,7 @@ func (s *chatService) CreateSupportAgent(ctx context.Context, adminUserID uuid.U
 
 // Support agent operations (continued)
 
-func (s *chatService) GetSupportAgents(ctx context.Context, department string, status string, limit, offset int) (*dto.SupportAgentListResponse, error) {
+func (s *ChatService) GetSupportAgents(ctx context.Context, department string, status string, limit, offset int) (*dto.SupportAgentListResponse, error) {
 	agents, total, err := s.chatRepo.GetSupportAgents(ctx, department, status, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get support agents: %w", err)
@@ -676,7 +1009,7 @@ func (s *chatService) GetSupportAgents(ctx context.Context, department string, s
 	return response, nil
 }
 
-func (s *chatService) UpdateSupportAgent(ctx context.Context, agentID uuid.UUID, req *dto.UpdateSupportAgentRequest) (*dto.SupportAgentResponse, error) {
+func (s *ChatService) UpdateSupportAgent(ctx context.Context, agentID uuid.UUID, req *dto.UpdateSupportAgentRequest) (*dto.SupportAgentResponse, error) {
 	agent, err := s.chatRepo.GetSupportAgentByID(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("agent not found: %w", err)
@@ -705,9 +1038,9 @@ func (s *chatService) UpdateSupportAgent(ctx context.Context, agentID uuid.UUID,
 	}, nil
 }
 
-func (s *chatService) AssignAgent(ctx context.Context, adminUserID uuid.UUID, conversationID uuid.UUID, req *dto.AssignAgentRequest) error {
+func (s *ChatService) AssignAgent(ctx context.Context, adminUserID uuid.UUID, conversationID uuid.UUID, req *dto.AssignAgentRequest) error {
 	// Check if requester is admin
-	admin, err := s.userRepo.GetByID(ctx, adminUserID)
+	admin, err := s.userRepo.GetByID(adminUserID)
 	if err != nil {
 		return fmt.Errorf("admin user not found: %w", err)
 	}
@@ -730,11 +1063,11 @@ func (s *chatService) AssignAgent(ctx context.Context, adminUserID uuid.UUID, co
 	return s.chatRepo.UpdateConversation(ctx, conversation)
 }
 
-func (s *chatService) UpdateAgentStatus(ctx context.Context, agentID uuid.UUID, status string) error {
+func (s *ChatService) UpdateAgentStatus(ctx context.Context, agentID uuid.UUID, status string) error {
 	return s.chatRepo.UpdateAgentStatus(ctx, agentID, status)
 }
 
-func (s *chatService) GetAvailableAgents(ctx context.Context, department string) ([]dto.SupportAgentResponse, error) {
+func (s *ChatService) GetAvailableAgents(ctx context.Context, department string) ([]dto.SupportAgentResponse, error) {
 	agents, err := s.chatRepo.GetAvailableAgents(ctx, department)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get available agents: %w", err)
@@ -759,7 +1092,7 @@ func (s *chatService) GetAvailableAgents(ctx context.Context, department string)
 
 // Real-time operations
 
-func (s *chatService) SetTypingStatus(ctx context.Context, userID uuid.UUID, req *dto.SetTypingStatusRequest) error {
+func (s *ChatService) SetTypingStatus(ctx context.Context, userID uuid.UUID, req *dto.SetTypingStatusRequest) error {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, req.ConversationID)
 	if err != nil {
@@ -769,39 +1102,61 @@ func (s *chatService) SetTypingStatus(ctx context.Context, userID uuid.UUID, req
 		return errors.New("access denied")
 	}
 
-	// TODO: Broadcast typing status via WebSocket
-	// s.wsManager.BroadcastToConversation(req.ConversationID, WSEventUserTyping, typingData, &userID)
+	// NEW: Broadcast typing status via WebSocket
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		s.wsManager.BroadcastUserTyping(req.ConversationID, userID, req.IsTyping)
+	}
 
 	return nil
 }
 
-func (s *chatService) GetOnlineUsers(ctx context.Context, conversationID uuid.UUID) (*dto.OnlineUsersResponse, error) {
+func (s *ChatService) GetOnlineUsers(ctx context.Context, conversationID uuid.UUID) (*dto.OnlineUsersResponse, error) {
 	// Get conversation participants
 	participants, err := s.chatRepo.GetParticipants(ctx, conversationID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get participants: %w", err)
 	}
 
-	// TODO: Filter for online users using WebSocket manager
-	// For now, return all participants
-	users := make([]dto.UserInfo, 0, len(participants))
-	for _, participant := range participants {
-		if participant.User != nil {
-			users = append(users, s.mapUserToInfo(participant.User))
+	// NEW: Filter for online users using WebSocket manager
+	var users []dto.UserInfo
+	onlineCount := 0
+
+	if s.wsManager != nil && s.wsManager.IsRunning() {
+		// Get online users from WebSocket manager
+		onlineUserIDs := s.wsManager.GetOnlineUsers(conversationID)
+		onlineUserMap := make(map[uuid.UUID]bool)
+		for _, userID := range onlineUserIDs {
+			onlineUserMap[userID] = true
 		}
+
+		// Filter participants to only include online users
+		for _, participant := range participants {
+			if participant.User != nil && onlineUserMap[participant.UserID] {
+				users = append(users, s.mapUserToInfo(participant.User))
+				onlineCount++
+			}
+		}
+	} else {
+		// Fallback: return all participants if WebSocket manager not available
+		for _, participant := range participants {
+			if participant.User != nil {
+				users = append(users, s.mapUserToInfo(participant.User))
+			}
+		}
+		onlineCount = len(users)
 	}
 
 	return &dto.OnlineUsersResponse{
 		Users:      users,
-		TotalCount: len(users),
+		TotalCount: onlineCount,
 	}, nil
 }
 
 // Analytics and statistics
 
-func (s *chatService) GetConversationStats(ctx context.Context, userID uuid.UUID, req *dto.ConversationStatsRequest) (*dto.ConversationStatsResponse, error) {
+func (s *ChatService) GetConversationStats(ctx context.Context, userID uuid.UUID, req *dto.ConversationStatsRequest) (*dto.ConversationStatsResponse, error) {
 	// Check if user is admin for full stats
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return nil, fmt.Errorf("user not found: %w", err)
 	}
@@ -812,7 +1167,7 @@ func (s *chatService) GetConversationStats(ctx context.Context, userID uuid.UUID
 	return s.chatRepo.GetConversationStats(ctx, req)
 }
 
-func (s *chatService) GetConversationSummary(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (*dto.ConversationSummaryResponse, error) {
+func (s *ChatService) GetConversationSummary(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (*dto.ConversationSummaryResponse, error) {
 	// Check permissions
 	canAccess, err := s.CanUserAccessConversation(ctx, userID, conversationID)
 	if err != nil {
@@ -849,7 +1204,7 @@ func (s *chatService) GetConversationSummary(ctx context.Context, userID uuid.UU
 
 // System operations
 
-func (s *chatService) CreateSystemMessage(ctx context.Context, conversationID uuid.UUID, messageType string, content string, metadata map[string]interface{}) error {
+func (s *ChatService) CreateSystemMessage(ctx context.Context, conversationID uuid.UUID, messageType string, content string, metadata map[string]interface{}) error {
 	message := &models.Message{
 		ConversationID: conversationID,
 		SenderID:       uuid.Nil, // System message
@@ -870,36 +1225,17 @@ func (s *chatService) CreateSystemMessage(ctx context.Context, conversationID uu
 	return s.chatRepo.CreateMessage(ctx, message)
 }
 
-func (s *chatService) NotifyReservationUpdate(ctx context.Context, userID uuid.UUID, reservationID uuid.UUID, messageType string) error {
-	// TODO: Find or create conversation for reservation notifications
-	// For now, this is a placeholder implementation
-
-	metadata := map[string]interface{}{
-		"reservation_id": reservationID,
-		"user_id":        userID,
-	}
-
-	content := fmt.Sprintf("Reservation %s has been updated", reservationID)
-
-	// This would typically create a conversation or add to existing support conversation
-	// Implementation depends on your reservation notification requirements
-
-	s.logger.Info("Reservation notification", "userID", userID, "reservationID", reservationID, "type", messageType)
-
-	return nil
-}
-
-func (s *chatService) CleanupOldMessages(ctx context.Context, retentionDays int) error {
+func (s *ChatService) CleanupOldMessages(ctx context.Context, retentionDays int) error {
 	return s.chatRepo.CleanupOldMessages(ctx, retentionDays)
 }
 
 // Permission helpers
 
-func (s *chatService) CanUserAccessConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (bool, error) {
+func (s *ChatService) CanUserAccessConversation(ctx context.Context, userID uuid.UUID, conversationID uuid.UUID) (bool, error) {
 	return s.chatRepo.IsUserParticipant(ctx, userID, conversationID)
 }
 
-func (s *chatService) CanUserModifyMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) (bool, error) {
+func (s *ChatService) CanUserModifyMessage(ctx context.Context, userID uuid.UUID, messageID uuid.UUID) (bool, error) {
 	message, err := s.chatRepo.GetMessageByID(ctx, messageID)
 	if err != nil {
 		return false, err
@@ -910,7 +1246,7 @@ func (s *chatService) CanUserModifyMessage(ctx context.Context, userID uuid.UUID
 		return true, nil
 	}
 
-	user, err := s.userRepo.GetByID(ctx, userID)
+	user, err := s.userRepo.GetByID(userID)
 	if err != nil {
 		return false, err
 	}
@@ -918,7 +1254,7 @@ func (s *chatService) CanUserModifyMessage(ctx context.Context, userID uuid.UUID
 	return user.IsAdmin(), nil
 }
 
-func (s *chatService) IsUserAgent(ctx context.Context, userID uuid.UUID) (bool, error) {
+func (s *ChatService) IsUserAgent(ctx context.Context, userID uuid.UUID) (bool, error) {
 	_, err := s.chatRepo.GetSupportAgentByID(ctx, userID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -931,7 +1267,7 @@ func (s *chatService) IsUserAgent(ctx context.Context, userID uuid.UUID) (bool, 
 
 // Mapping helper functions
 
-func (s *chatService) mapConversationToResponse(conversation *models.Conversation, userID uuid.UUID) *dto.ConversationResponse {
+func (s *ChatService) mapConversationToResponse(conversation *models.Conversation, userID uuid.UUID) *dto.ConversationResponse {
 	response := &dto.ConversationResponse{
 		ID:              conversation.ID,
 		Title:           conversation.Title,
@@ -984,8 +1320,8 @@ func (s *chatService) mapConversationToResponse(conversation *models.Conversatio
 	return response
 }
 
-func (s *chatService) mapMessageToResponse(message *models.Message, userID uuid.UUID) *dto.MessageResponse {
-	response := &dto.MessageResponse{
+func (s *ChatService) mapMessageToResponse(message *models.Message, userID uuid.UUID) *dto.ChatMessageResponse {
+	response := &dto.ChatMessageResponse{
 		ID:             message.ID,
 		ConversationID: message.ConversationID,
 		SenderID:       message.SenderID,
@@ -1034,7 +1370,7 @@ func (s *chatService) mapMessageToResponse(message *models.Message, userID uuid.
 	return response
 }
 
-func (s *chatService) mapUserToInfo(user *models.User) dto.UserInfo {
+func (s *ChatService) mapUserToInfo(user *models.User) dto.UserInfo {
 	if user == nil {
 		return dto.UserInfo{}
 	}

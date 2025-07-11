@@ -11,24 +11,26 @@ import (
 	"room-reservation-api/internal/repositories/interfaces"
 )
 
-type userRepository struct {
+type UserRepository struct {
 	db *gorm.DB
 }
 
 // NewUserRepository creates a new user repository instance
-func NewUserRepository(db *gorm.DB) interfaces.UserRepositoryInterface {
-	return &userRepository{
+func NewUserRepository(db *gorm.DB) *UserRepository {
+	return &UserRepository{
 		db: db,
 	}
 }
 
+var _ interfaces.UserRepositoryInterface = (*UserRepository)(nil)
+
 // Create creates a new user in the database
-func (r *userRepository) Create(user *models.User) error {
+func (r *UserRepository) Create(user *models.User) error {
 	return r.db.Create(user).Error
 }
 
 // GetByID retrieves a user by ID
-func (r *userRepository) GetByID(id uuid.UUID) (*models.User, error) {
+func (r *UserRepository) GetByID(id uuid.UUID) (*models.User, error) {
 	var user models.User
 	if err := r.db.Where("id = ?", id).First(&user).Error; err != nil {
 		return nil, err
@@ -37,7 +39,7 @@ func (r *userRepository) GetByID(id uuid.UUID) (*models.User, error) {
 }
 
 // GetByEmail retrieves a user by email
-func (r *userRepository) GetByEmail(email string) (*models.User, error) {
+func (r *UserRepository) GetByEmail(email string) (*models.User, error) {
 	var user models.User
 	if err := r.db.Where("email = ?", email).First(&user).Error; err != nil {
 		return nil, err
@@ -46,17 +48,17 @@ func (r *userRepository) GetByEmail(email string) (*models.User, error) {
 }
 
 // Update updates a user in the database
-func (r *userRepository) Update(user *models.User) error {
+func (r *UserRepository) Update(user *models.User) error {
 	return r.db.Save(user).Error
 }
 
 // Delete soft deletes a user
-func (r *userRepository) Delete(id uuid.UUID) error {
+func (r *UserRepository) Delete(id uuid.UUID) error {
 	return r.db.Delete(&models.User{}, id).Error
 }
 
 // GetAll retrieves all users with pagination
-func (r *userRepository) GetAll(limit, offset int) ([]models.User, int64, error) {
+func (r *UserRepository) GetAll(limit, offset int) ([]models.User, int64, error) {
 	var users []models.User
 	var total int64
 
@@ -79,7 +81,7 @@ func (r *userRepository) GetAll(limit, offset int) ([]models.User, int64, error)
 }
 
 // GetByRole retrieves users by role
-func (r *userRepository) GetByRole(role models.UserRole) ([]models.User, error) {
+func (r *UserRepository) GetByRole(role models.UserRole) ([]models.User, error) {
 	var users []models.User
 	if err := r.db.Where("role = ? AND is_active = ?", role, true).Find(&users).Error; err != nil {
 		return nil, err
@@ -94,7 +96,7 @@ func (r *userRepository) GetByRole(role models.UserRole) ([]models.User, error) 
 }
 
 // Search searches users by name or email
-func (r *userRepository) Search(query string, limit, offset int) ([]models.User, int64, error) {
+func (r *UserRepository) Search(query string, limit, offset int) ([]models.User, int64, error) {
 	var users []models.User
 	var total int64
 
@@ -125,32 +127,32 @@ func (r *userRepository) Search(query string, limit, offset int) ([]models.User,
 }
 
 // Activate activates a user account
-func (r *userRepository) Activate(id uuid.UUID) error {
+func (r *UserRepository) Activate(id uuid.UUID) error {
 	return r.db.Model(&models.User{}).Where("id = ?", id).Update("is_active", true).Error
 }
 
 // Deactivate deactivates a user account
-func (r *userRepository) Deactivate(id uuid.UUID) error {
+func (r *UserRepository) Deactivate(id uuid.UUID) error {
 	return r.db.Model(&models.User{}).Where("id = ?", id).Update("is_active", false).Error
 }
 
 // UpdateRole updates a user's role
-func (r *userRepository) UpdateRole(id uuid.UUID, role models.UserRole) error {
+func (r *UserRepository) UpdateRole(id uuid.UUID, role models.UserRole) error {
 	return r.db.Model(&models.User{}).Where("id = ?", id).Update("role", role).Error
 }
 
 // UpdatePassword updates a user's password hash
-func (r *userRepository) UpdatePassword(id uuid.UUID, passwordHash string) error {
+func (r *UserRepository) UpdatePassword(id uuid.UUID, passwordHash string) error {
 	return r.db.Model(&models.User{}).Where("id = ?", id).Update("password_hash", passwordHash).Error
 }
 
 // UpdateLastLogin updates the last login timestamp
-func (r *userRepository) UpdateLastLogin(id uuid.UUID) error {
+func (r *UserRepository) UpdateLastLogin(id uuid.UUID) error {
 	return r.db.Model(&models.User{}).Where("id = ?", id).Update("last_login_at", time.Now()).Error
 }
 
 // ExistsByEmail checks if a user exists by email
-func (r *userRepository) ExistsByEmail(email string) (bool, error) {
+func (r *UserRepository) ExistsByEmail(email string) (bool, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Where("email = ?", email).Count(&count).Error; err != nil {
 		return false, err
@@ -159,7 +161,7 @@ func (r *userRepository) ExistsByEmail(email string) (bool, error) {
 }
 
 // ExistsByID checks if a user exists by ID
-func (r *userRepository) ExistsByID(id uuid.UUID) (bool, error) {
+func (r *UserRepository) ExistsByID(id uuid.UUID) (bool, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Where("id = ?", id).Count(&count).Error; err != nil {
 		return false, err
@@ -168,7 +170,7 @@ func (r *userRepository) ExistsByID(id uuid.UUID) (bool, error) {
 }
 
 // GetActiveUsers retrieves only active users
-func (r *userRepository) GetActiveUsers(limit, offset int) ([]models.User, int64, error) {
+func (r *UserRepository) GetActiveUsers(limit, offset int) ([]models.User, int64, error) {
 	var users []models.User
 	var total int64
 
@@ -191,7 +193,7 @@ func (r *userRepository) GetActiveUsers(limit, offset int) ([]models.User, int64
 }
 
 // GetInactiveUsers retrieves only inactive users
-func (r *userRepository) GetInactiveUsers(limit, offset int) ([]models.User, int64, error) {
+func (r *UserRepository) GetInactiveUsers(limit, offset int) ([]models.User, int64, error) {
 	var users []models.User
 	var total int64
 
@@ -214,7 +216,7 @@ func (r *userRepository) GetInactiveUsers(limit, offset int) ([]models.User, int
 }
 
 // GetUsersByDepartment retrieves users by department
-func (r *userRepository) GetUsersByDepartment(department string) ([]models.User, error) {
+func (r *UserRepository) GetUsersByDepartment(department string) ([]models.User, error) {
 	var users []models.User
 	if err := r.db.Where("department = ? AND is_active = ?", department, true).Find(&users).Error; err != nil {
 		return nil, err
@@ -229,7 +231,7 @@ func (r *userRepository) GetUsersByDepartment(department string) ([]models.User,
 }
 
 // GetRecentUsers retrieves users created in the last N days
-func (r *userRepository) GetRecentUsers(days int, limit, offset int) ([]models.User, int64, error) {
+func (r *UserRepository) GetRecentUsers(days int, limit, offset int) ([]models.User, int64, error) {
 	var users []models.User
 	var total int64
 
@@ -257,7 +259,7 @@ func (r *userRepository) GetRecentUsers(days int, limit, offset int) ([]models.U
 }
 
 // CountTotal returns the total number of users
-func (r *userRepository) CountTotal() (int64, error) {
+func (r *UserRepository) CountTotal() (int64, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count users: %w", err)
@@ -266,7 +268,7 @@ func (r *userRepository) CountTotal() (int64, error) {
 }
 
 // CountByRole returns the count of users by role
-func (r *userRepository) CountByRole(role models.UserRole) (int64, error) {
+func (r *UserRepository) CountByRole(role models.UserRole) (int64, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Where("role = ?", role).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count users by role: %w", err)
@@ -275,7 +277,7 @@ func (r *userRepository) CountByRole(role models.UserRole) (int64, error) {
 }
 
 // CountActiveUsers returns the count of active users
-func (r *userRepository) CountActiveUsers() (int64, error) {
+func (r *UserRepository) CountActiveUsers() (int64, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Where("is_active = ?", true).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count active users: %w", err)
@@ -284,7 +286,7 @@ func (r *userRepository) CountActiveUsers() (int64, error) {
 }
 
 // CountInactiveUsers returns the count of inactive users
-func (r *userRepository) CountInactiveUsers() (int64, error) {
+func (r *UserRepository) CountInactiveUsers() (int64, error) {
 	var count int64
 	if err := r.db.Model(&models.User{}).Where("is_active = ?", false).Count(&count).Error; err != nil {
 		return 0, fmt.Errorf("failed to count inactive users: %w", err)
