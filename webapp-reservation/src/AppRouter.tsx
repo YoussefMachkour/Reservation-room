@@ -16,7 +16,7 @@ import Dashboard from "./pages/dashboard/Dashboard";
 import { SpacesPage } from "./pages/spaces/Spaces";
 import { Bookings } from "./pages/bookings/Bookings";
 import { SpaceBooking } from "./pages/bookings/SpaceBooking";
-import { CustomerSupportPage } from "./pages/support/CustomerSupportPage";
+import { CustomerSupport } from "./pages/support/CustomerSupportPage";
 import { ProfilePage } from "./pages/profile/ProfilePage"; // ADD THIS
 
 // Protected Route Component
@@ -108,7 +108,7 @@ export const AppRouter: React.FC = () => {
         <Route path="bookings/:id" element={<SpaceBooking />} />
 
         {/* Customer Support */}
-        <Route path="support" element={<CustomerSupportPage />} />
+        <Route path="support" element={<CustomerSupport />} />
 
         {/* Profile */}
         <Route path="profile" element={<ProfilePage />} />

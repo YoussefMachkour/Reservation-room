@@ -1,8 +1,7 @@
-import { useState, useRef, useEffect } from "react";
+// pages/CustomerSupport.tsx
+import React, { useState, useRef, useEffect } from "react";
 import {
   Send,
-  Paperclip,
-  Smile,
   Phone,
   Mail,
   Clock,
@@ -11,294 +10,233 @@ import {
   Bot,
   Minimize2,
   Maximize2,
-  X,
-  FileText,
-  Image,
-  Video,
-  Music,
-  Download,
+  Star,
+  HelpCircle,
+  Wifi,
+  WifiOff,
+  CheckCircle,
+  Settings,
+  Headphones,
+  AlertCircle,
 } from "lucide-react";
+import { Button } from "@/components/ui/button/Button";
+import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { MessageBubble } from "@/components/chat/MessageBubble";
+import { MessageList } from "@/components/chat/MessageList";
+import { AgentCard } from "@/components/chat/AgentCard";
+import { QuickReplies } from "@/components/chat/QuickReplies";
+import { TypingIndicator } from "@/components/chat/TypingIndicator";
+import { Message, SupportAgent, MessageType, ChatUtils } from "@/types/chat";
+import { useTheme } from "@/contexts/ThemeContext";
 
-// Import your actual theme context
-// import { useTheme } from "../../contexts/ThemeContext";
-
-interface Message {
-  id: string;
+interface ChatInputMessageData {
   content: string;
-  sender: "user" | "support" | "bot";
-  timestamp: Date;
-  type: "text" | "image" | "file" | "video" | "audio";
-  fileName?: string;
-  fileSize?: number;
-  fileUrl?: string;
+  type: MessageType;
+  attachments?: File[];
 }
 
-interface SupportAgent {
+interface TypingUser {
   id: string;
   name: string;
-  avatar?: string;
-  status: "online" | "away" | "offline";
-  department: string;
+  type: "user" | "admin" | "bot";
 }
 
-export const CustomerSupportPage = () => {
-  // OPTION 1: Use your actual theme context (recommended)
-  // const { isDark } = useTheme();
-  
-  // OPTION 2: Detect system theme (temporary solution)
-  const [isDark] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    }
-    return false;
-  });
-  
-  // OPTION 3: Check if document has dark class (if you use class-based theming)
-  // const [isDark] = useState(() => {
-  //   if (typeof document !== 'undefined') {
-  //     return document.documentElement.classList.contains('dark');
-  //   }
-  //   return false;
-  // });
+export const CustomerSupport: React.FC = () => {
+  const { isDark } = useTheme();
+
+  // State management
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
+      conversationId: "conv1",
+      senderId: "agent1",
+      senderName: "Sarah Williams",
+      senderType: "admin",
       content: "Hello! I'm Sarah from CoHub Support. How can I help you today?",
-      sender: "support",
-      timestamp: new Date(Date.now() - 300000),
+      timestamp: new Date(Date.now() - 300000).toISOString(),
       type: "text",
+      isRead: true,
     },
     {
       id: "2",
+      conversationId: "conv1",
+      senderId: "bot",
+      senderName: "Support Bot",
+      senderType: "bot",
       content:
         "You can also check our FAQ section below for quick answers to common questions.",
-      sender: "bot",
-      timestamp: new Date(Date.now() - 290000),
-      type: "text",
+      timestamp: new Date(Date.now() - 290000).toISOString(),
+      type: "system_notification",
+      isRead: true,
     },
   ]);
-  const [newMessage, setNewMessage] = useState("");
+
   const [isMinimized, setIsMinimized] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<
+    "connected" | "connecting" | "disconnected"
+  >("connected");
+  const [isLoading, setIsLoading] = useState(false);
+  const [notification, setNotification] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
+  const [sessionStarted, setSessionStarted] = useState(false);
+
   const [activeAgent] = useState<SupportAgent>({
-    id: "1",
+    id: "agent1",
     name: "Sarah Williams",
     status: "online",
     department: "General Support",
+    avatar: "",
+    rating: 4.9,
   });
-  const [uploadingFiles, setUploadingFiles] = useState<File[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
+  const typingUsers: TypingUser[] = isTyping
+    ? [{ id: "agent1", name: "Sarah Williams", type: "admin" }]
+    : [];
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Effects
+  useEffect(() => {
+    // Simulate connection status changes
+    const interval = setInterval(() => {
+      if (Math.random() > 0.98) {
+        // 2% chance to change status
+        const statuses: ("connected" | "connecting" | "disconnected")[] = [
+          "connected",
+          "connecting",
+          "disconnected",
+        ];
+        const randomStatus =
+          statuses[Math.floor(Math.random() * statuses.length)];
+        setConnectionStatus(randomStatus);
+
+        // Auto-reconnect after a few seconds
+        if (randomStatus === "disconnected") {
+          setTimeout(() => setConnectionStatus("connected"), 3000);
+        }
+      }
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+    // Clear typing indicator
+    if (isTyping) {
+      const timeout = setTimeout(() => {
+        setIsTyping(false);
+      }, 2000);
+      return () => clearTimeout(timeout);
+    }
+  }, [isTyping]);
 
-  const handleSendMessage = (e: any) => {
-    e.preventDefault();
-    if (!newMessage.trim() && uploadingFiles.length === 0) return;
+  // Event handlers
+  const showNotification = (type: "success" | "error", message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 3000);
+  };
 
-    // Send text message if there's content
-    if (newMessage.trim()) {
-      const userMessage: Message = {
-        id: Date.now().toString(),
-        content: newMessage,
-        sender: "user",
-        timestamp: new Date(),
-        type: "text",
-      };
-      setMessages((prev: Message[]) => [...prev, userMessage]);
+  const handleStartChat = () => {
+    setSessionStarted(true);
+    showNotification("success", "Chat session started!");
+  };
+
+  const handleSendMessage = (messageData: ChatInputMessageData) => {
+    if (!sessionStarted) {
+      setSessionStarted(true);
     }
 
-    // Send file messages
-    uploadingFiles.forEach((file: File, index: number) => {
-      const fileUrl = URL.createObjectURL(file);
-      const fileMessage: Message = {
-        id: (Date.now() + index + 1).toString(),
-        content: `Shared a ${getFileTypeLabel(file.type)}`,
-        sender: "user",
-        timestamp: new Date(),
-        type: getMessageType(file.type),
-        fileName: file.name,
-        fileSize: file.size,
-        fileUrl: fileUrl,
-      };
-      setMessages((prev: Message[]) => [...prev, fileMessage]);
-    });
+    setIsLoading(true);
 
-    setNewMessage("");
-    setUploadingFiles([]);
-
-    // Simulate support response
-    setTimeout(() => {
-      const supportResponse: Message = {
-        id: (Date.now() + 1000).toString(),
-        content: uploadingFiles.length > 0 
-          ? "Thank you for sharing the file(s)! I've received them and will review them to better assist you."
-          : "Thank you for your message! I'll help you with that right away. Let me check our system for you.",
-        sender: "support",
-        timestamp: new Date(),
+    // Create user message
+    if (messageData.content.trim()) {
+      const userMessage: Message = {
+        id: ChatUtils.createMessageId(),
+        conversationId: "conv1",
+        senderId: "user1",
+        senderName: "You",
+        senderType: "user",
+        content: messageData.content,
+        timestamp: new Date().toISOString(),
         type: "text",
+        isRead: false,
       };
-      setMessages((prev: Message[]) => [...prev, supportResponse]);
+      setMessages((prev) => [...prev, userMessage]);
+    }
+
+    // Handle file attachments
+    if (messageData.attachments && messageData.attachments.length > 0) {
+      messageData.attachments.forEach((file, index) => {
+        const fileUrl = URL.createObjectURL(file);
+        const fileMessage: Message = {
+          id: ChatUtils.createMessageId(),
+          conversationId: "conv1",
+          senderId: "user1",
+          senderName: "You",
+          senderType: "user",
+          content: `Shared a ${ChatUtils.getFileTypeLabel(file.type)}`,
+          timestamp: new Date().toISOString(),
+          type: ChatUtils.getMessageType(file.type),
+          isRead: false,
+          attachments: [
+            {
+              id: `attachment-${Date.now() + index}`,
+              messageId: ChatUtils.createMessageId(),
+              fileName: file.name,
+              fileSize: file.size,
+              fileType: file.type,
+              fileUrl: fileUrl,
+            },
+          ],
+        };
+        setMessages((prev) => [...prev, fileMessage]);
+      });
+    }
+
+    setIsLoading(false);
+    setIsTyping(true);
+    showNotification("success", "Message sent!");
+
+    // Simulate agent response
+    setTimeout(() => {
+      setIsTyping(false);
+      const agentResponse: Message = {
+        id: ChatUtils.createMessageId(),
+        conversationId: "conv1",
+        senderId: "agent1",
+        senderName: "Sarah Williams",
+        senderType: "admin",
+        content:
+          messageData.attachments && messageData.attachments.length > 0
+            ? "Thank you for sharing the file(s)! I've received them and will review them to better assist you."
+            : ChatUtils.generateSmartResponse(messageData.content),
+        timestamp: new Date().toISOString(),
+        type: "text",
+        isRead: true,
+      };
+      setMessages((prev) => [...prev, agentResponse]);
+
+      // Mark user messages as read
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.senderType === "user" && !msg.isRead
+            ? { ...msg, isRead: true }
+            : msg
+        )
+      );
     }, 1500);
   };
 
-  const getFileTypeLabel = (mimeType: string): string => {
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    if (mimeType.startsWith('audio/')) return 'audio';
-    return 'file';
-  };
-
-  const getMessageType = (mimeType: string): Message['type'] => {
-    if (mimeType.startsWith('image/')) return 'image';
-    if (mimeType.startsWith('video/')) return 'video';
-    if (mimeType.startsWith('audio/')) return 'audio';
-    return 'file';
-  };
-
-  const getFileIcon = (type: Message['type']) => {
-    switch (type) {
-      case 'image': return <Image className="w-4 h-4" />;
-      case 'video': return <Video className="w-4 h-4" />;
-      case 'audio': return <Music className="w-4 h-4" />;
-      default: return <FileText className="w-4 h-4" />;
-    }
-  };
-
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const handleFileSelect = (e: any) => {
-    const files = Array.from(e.target.files || []) as File[];
-    const validFiles = files.filter((file: File) => {
-      // Limit file size to 10MB
-      if (file.size > 10 * 1024 * 1024) {
-        alert(`File "${file.name}" is too large. Maximum size is 10MB.`);
-        return false;
-      }
-      return true;
+  const handleQuickReply = (reply: string) => {
+    handleSendMessage({
+      content: reply,
+      type: "text",
     });
-    
-    setUploadingFiles((prev: File[]) => [...prev, ...validFiles]);
-    // Reset file input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
   };
-
-  const removeUploadingFile = (index: number) => {
-    setUploadingFiles((prev: File[]) => prev.filter((_: File, i: number) => i !== index));
-  };
-
-  const downloadFile = (message: Message) => {
-    if (message.fileUrl && message.fileName) {
-      const link = document.createElement('a');
-      link.href = message.fileUrl;
-      link.download = message.fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    }
-  };
-
-  const renderMessage = (message: Message) => {
-    if (message.type === 'text') {
-      return <p className="text-sm">{message.content}</p>;
-    }
-
-    if (message.type === 'image' && message.fileUrl) {
-      return (
-        <div className="space-y-2">
-          <p className="text-sm">{message.content}</p>
-          <img
-            src={message.fileUrl}
-            alt={message.fileName}
-            className="max-w-xs rounded-lg cursor-pointer hover:opacity-80"
-            onClick={() => window.open(message.fileUrl, '_blank')}
-          />
-          <div className="flex items-center gap-2 text-xs opacity-75">
-            <span>{message.fileName}</span>
-            {message.fileSize && <span>• {formatFileSize(message.fileSize)}</span>}
-          </div>
-        </div>
-      );
-    }
-
-    if (message.type === 'video' && message.fileUrl) {
-      return (
-        <div className="space-y-2">
-          <p className="text-sm">{message.content}</p>
-          <video
-            src={message.fileUrl}
-            controls
-            className="max-w-xs rounded-lg"
-          />
-          <div className="flex items-center gap-2 text-xs opacity-75">
-            <span>{message.fileName}</span>
-            {message.fileSize && <span>• {formatFileSize(message.fileSize)}</span>}
-          </div>
-        </div>
-      );
-    }
-
-    if (message.type === 'audio' && message.fileUrl) {
-      return (
-        <div className="space-y-2">
-          <p className="text-sm">{message.content}</p>
-          <audio
-            src={message.fileUrl}
-            controls
-            className="w-full max-w-xs"
-          />
-          <div className="flex items-center gap-2 text-xs opacity-75">
-            <span>{message.fileName}</span>
-            {message.fileSize && <span>• {formatFileSize(message.fileSize)}</span>}
-          </div>
-        </div>
-      );
-    }
-
-    // Generic file
-    return (
-      <div className="space-y-2">
-        <p className="text-sm">{message.content}</p>
-        <div 
-          className="flex items-center gap-3 p-3 border border-gray-200 dark:border-gray-600 rounded-lg cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800"
-          onClick={() => downloadFile(message)}
-        >
-          <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-            {getFileIcon(message.type)}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate text-gray-900 dark:text-white">{message.fileName}</p>
-            {message.fileSize && (
-              <p className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(message.fileSize)}</p>
-            )}
-          </div>
-          <Download className="w-4 h-4 text-gray-400 dark:text-gray-500" />
-        </div>
-      </div>
-    );
-  };
-
-  const quickReplies = [
-    "How do I book a space?",
-    "Cancel my booking",
-    "Payment issues",
-    "Account settings",
-    "Technical support",
-  ];
 
   const faqItems = [
     {
@@ -321,330 +259,372 @@ export const CustomerSupportPage = () => {
       answer:
         "You'll receive an access code via email 15 minutes before your booking starts. Use this code at the space entrance.",
     },
+    {
+      question: "What if I have technical issues?",
+      answer:
+        "Our technical support team is available 24/7. Use the chat below or call our emergency line for immediate assistance.",
+    },
   ];
 
   return (
-    <div className="h-full w-full bg-gray-50 dark:bg-gray-900">
-      {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-3xl font-bold mb-2 text-gray-900 dark:text-white">
-          Customer Support
-        </h1>
-        <p className="text-gray-600 dark:text-gray-300">
-          Get help when you need it. Our team is here to assist you.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 h-[calc(100vh-200px)]">
-        {/* Support Info Panel */}
-        <div className="xl:col-span-1 space-y-6">
-          {/* Contact Methods */}
-          <div className="p-6 rounded-xl bg-white dark:bg-gray-800 shadow-lg">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-              Contact Methods
-            </h3>
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                  <MessageCircle className="w-5 h-5 text-blue-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    Live Chat
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    Available 24/7
-                  </p>
-                </div>
-                <span className="ml-auto w-2 h-2 bg-green-500 rounded-full"></span>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                  <Phone className="w-5 h-5 text-green-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    Phone Support
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    +1 (555) 123-4567
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-                  <Mail className="w-5 h-5 text-purple-600" />
-                </div>
-                <div>
-                  <p className="font-medium text-gray-900 dark:text-white">
-                    Email Support
-                  </p>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">
-                    support@cohub.com
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* FAQ Section */}
-          <div className="p-6 rounded-xl bg-white dark:bg-gray-800 shadow-lg">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900 dark:text-white">
-              Frequently Asked Questions
-            </h3>
-            <div className="space-y-4">
-              {faqItems.map((item, index) => (
-                <details key={index} className="group">
-                  <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300 hover:text-blue-600 transition-colors">
-                    {item.question}
-                  </summary>
-                  <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 pl-4">
-                    {item.answer}
-                  </p>
-                </details>
-              ))}
-            </div>
-          </div>
-
-          {/* Operating Hours */}
-          <div className="p-6 rounded-xl bg-white dark:bg-gray-800 shadow-lg">
-            <h3 className="text-lg font-semibold mb-4 flex items-center gap-2 text-gray-900 dark:text-white">
-              <Clock className="w-5 h-5" />
-              Operating Hours
-            </h3>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Live Chat
-                </span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  24/7
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Phone Support
-                </span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  9 AM - 6 PM EST
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-700 dark:text-gray-300">
-                  Email Response
-                </span>
-                <span className="text-gray-500 dark:text-gray-400">
-                  Within 2 hours
-                </span>
-              </div>
+    <div className={`min-h-screen ${isDark ? "bg-gray-900" : "bg-gray-50"}`}>
+      {/* Floating Toast Notification */}
+      {notification && (
+        <div className="fixed top-4 right-4 z-50 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div
+            className={`max-w-md p-4 rounded-lg shadow-lg border ${
+              notification.type === "success"
+                ? isDark
+                  ? "bg-green-900/20 border-green-800 text-green-300"
+                  : "bg-green-50 border-green-200 text-green-800"
+                : isDark
+                ? "bg-red-900/20 border-red-800 text-red-300"
+                : "bg-red-50 border-red-200 text-red-800"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {notification.type === "success" ? (
+                <CheckCircle className="w-4 h-4" />
+              ) : (
+                <AlertCircle className="w-4 h-4" />
+              )}
+              <span className="text-sm font-medium">
+                {notification.message}
+              </span>
             </div>
           </div>
         </div>
+      )}
 
-        {/* Chat Interface */}
-        <div className="xl:col-span-3">
-          <div className="rounded-xl shadow-lg h-full flex flex-col bg-white dark:bg-gray-800">
-            {/* Chat Header */}
-            <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-full flex items-center justify-center">
-                  <User className="w-5 h-5 text-blue-600" />
+      <div className="container mx-auto px-4 py-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1
+            className={`text-4xl font-bold mb-4 ${
+              isDark ? "text-white" : "text-gray-900"
+            }`}
+          >
+            Customer Support
+          </h1>
+          <p
+            className={`text-lg ${isDark ? "text-gray-300" : "text-gray-600"}`}
+          >
+            Get help when you need it. Our team is here to assist you 24/7.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 min-h-[80vh]">
+          {/* Support Info Panel */}
+          <div className="xl:col-span-1 space-y-6">
+            {/* Agent Card */}
+            <AgentCard
+              agent={activeAgent}
+              connectionStatus={connectionStatus}
+              estimatedWaitTime={connectionStatus === "connected" ? 0 : 2}
+              onCall={() =>
+                showNotification("success", "Initiating voice call...")
+              }
+              onVideoCall={() =>
+                showNotification("success", "Starting video call...")
+              }
+              onStartChat={handleStartChat}
+            />
+
+            {/* Contact Methods */}
+            <div
+              className={`p-6 rounded-xl shadow-lg border ${
+                isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200"
+              }`}
+            >
+              <h3
+                className={`text-lg font-semibold mb-4 ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
+                Contact Methods
+              </h3>
+              <div className="space-y-4">
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      isDark ? "bg-blue-900" : "bg-blue-100"
+                    }`}
+                  >
+                    <MessageCircle className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <p
+                      className={`font-medium ${
+                        isDark ? "text-white" : "text-gray-900"
+                      }`}
+                    >
+                      Live Chat
+                    </p>
+                    <p
+                      className={`text-sm ${
+                        isDark ? "text-gray-400" : "text-gray-500"
+                      }`}
+                    >
+                      Available 24/7
+                    </p>
+                  </div>
+                  <div className="ml-auto w-2 h-2 bg-green-500 rounded-full"></div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">
-                    {activeAgent.name}
-                  </h3>
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span className="text-sm text-gray-500 dark:text-gray-400">
-                      Online • {activeAgent.department}
-                    </span>
+
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      isDark ? "bg-green-900" : "bg-green-100"
+                    }`}
+                  >
+                    <Phone className="w-5 h-5 text-green-600" />
+                  </div>
+                  <div>
+                    <p
+                      className={`font-medium ${
+                        isDark ? "text-white" : "text-gray-900"
+                      }`}
+                    >
+                      Phone Support
+                    </p>
+                    <p
+                      className={`text-sm ${
+                        isDark ? "text-gray-400" : "text-gray-500"
+                      }`}
+                    >
+                      +1 (555) 123-4567
+                    </p>
                   </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsMinimized(!isMinimized)}
-                  className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400"
-                >
-                  {isMinimized ? (
-                    <Maximize2 className="w-4 h-4" />
-                  ) : (
-                    <Minimize2 className="w-4 h-4" />
-                  )}
-                </button>
+
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                      isDark ? "bg-purple-900" : "bg-purple-100"
+                    }`}
+                  >
+                    <Mail className="w-5 h-5 text-purple-600" />
+                  </div>
+                  <div>
+                    <p
+                      className={`font-medium ${
+                        isDark ? "text-white" : "text-gray-900"
+                      }`}
+                    >
+                      Email Support
+                    </p>
+                    <p
+                      className={`text-sm ${
+                        isDark ? "text-gray-400" : "text-gray-500"
+                      }`}
+                    >
+                      support@cohub.com
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {!isMinimized && (
-              <>
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                  {messages.map((message) => (
-                    <div
-                      key={message.id}
-                      className={`flex ${
-                        message.sender === "user"
-                          ? "justify-end"
-                          : "justify-start"
+            {/* Operating Hours */}
+            <div
+              className={`p-6 rounded-xl shadow-lg border ${
+                isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200"
+              }`}
+            >
+              <h3
+                className={`text-lg font-semibold mb-4 flex items-center gap-2 ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
+                <Clock className="w-5 h-5" />
+                Operating Hours
+              </h3>
+              <div className="space-y-3 text-sm">
+                <div className="flex justify-between items-center">
+                  <span className={isDark ? "text-gray-300" : "text-gray-700"}>
+                    Live Chat
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={isDark ? "text-gray-400" : "text-gray-500"}
+                    >
+                      24/7
+                    </span>
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                  </div>
+                </div>
+                <div className="flex justify-between">
+                  <span className={isDark ? "text-gray-300" : "text-gray-700"}>
+                    Phone Support
+                  </span>
+                  <span className={isDark ? "text-gray-400" : "text-gray-500"}>
+                    9 AM - 6 PM EST
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className={isDark ? "text-gray-300" : "text-gray-700"}>
+                    Email Response
+                  </span>
+                  <span className={isDark ? "text-gray-400" : "text-gray-500"}>
+                    Within 2 hours
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Main Content */}
+          <div className="xl:col-span-3 space-y-6">
+            {/* Chat Interface */}
+            <div
+              className={`rounded-xl shadow-lg border flex flex-col ${
+                isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200"
+              } ${isMinimized ? "h-20" : "h-[600px]"}`}
+            >
+              {/* Chat Header */}
+              <div
+                className={`px-6 py-4 border-b flex items-center justify-between ${
+                  isDark ? "border-gray-700" : "border-gray-200"
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      isDark ? "bg-blue-900" : "bg-blue-100"
+                    }`}
+                  >
+                    <Headphones className="w-5 h-5 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3
+                      className={`font-semibold ${
+                        isDark ? "text-white" : "text-gray-900"
                       }`}
                     >
-                      <div
-                        className={`flex items-start gap-3 max-w-md xl:max-w-lg ${
-                          message.sender === "user" ? "flex-row-reverse" : ""
+                      {sessionStarted ? activeAgent.name : "Support Chat"}
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                      <span
+                        className={`text-sm ${
+                          isDark ? "text-gray-400" : "text-gray-500"
                         }`}
                       >
-                        <div
-                          className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                            message.sender === "user"
-                              ? "bg-blue-600"
-                              : message.sender === "bot"
-                              ? "bg-purple-600"
-                              : "bg-green-600"
-                          }`}
-                        >
-                          {message.sender === "user" ? (
-                            <User className="w-4 h-4 text-white" />
-                          ) : message.sender === "bot" ? (
-                            <Bot className="w-4 h-4 text-white" />
-                          ) : (
-                            <User className="w-4 h-4 text-white" />
-                          )}
-                        </div>
-                        <div
-                          className={`px-4 py-2 rounded-lg ${
-                            message.sender === "user"
-                              ? "bg-blue-600 text-white"
-                              : "bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-200"
-                          }`}
-                        >
-                          {renderMessage(message)}
-                          <p
-                            className={`text-xs mt-1 ${
-                              message.sender === "user"
-                                ? "text-blue-100"
-                                : "text-gray-500 dark:text-gray-400"
-                            }`}
-                          >
-                            {message.timestamp.toLocaleTimeString([], {
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </div>
-
-                {/* File Upload Preview */}
-                {uploadingFiles.length > 0 && (
-                  <div className="px-6 py-3 border-t border-gray-200 dark:border-gray-700">
-                    <div className="space-y-2">
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                        Files to send:
-                      </p>
-                      <div className="space-y-2">
-                        {uploadingFiles.map((file: File, index: number) => (
-                          <div
-                            key={index}
-                            className="flex items-center gap-3 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg"
-                          >
-                            <div className="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                              {getFileIcon(getMessageType(file.type))}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate text-gray-900 dark:text-white">{file.name}</p>
-                              <p className="text-xs text-gray-500 dark:text-gray-400">{formatFileSize(file.size)}</p>
-                            </div>
-                            <button
-                              onClick={() => removeUploadingFile(index)}
-                              className="p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400"
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
+                        {sessionStarted
+                          ? `Online • ${activeAgent.department}`
+                          : "Ready to help"}
+                      </span>
+                      <div className="flex items-center gap-1 ml-2">
+                        {connectionStatus === "connected" ? (
+                          <Wifi className="w-3 h-3 text-green-600" />
+                        ) : (
+                          <WifiOff className="w-3 h-3 text-red-600" />
+                        )}
+                        <span className="text-xs capitalize">
+                          {connectionStatus}
+                        </span>
                       </div>
                     </div>
                   </div>
-                )}
-
-                {/* Quick Replies */}
-                <div className="px-6 py-2">
-                  <div className="flex flex-wrap gap-2">
-                    {quickReplies.map((reply, index) => (
-                      <button
-                        key={index}
-                        onClick={() => setNewMessage(reply)}
-                        className="px-3 py-1 text-xs rounded-full border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        {reply}
-                      </button>
-                    ))}
-                  </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsMinimized(!isMinimized)}
+                    icon={isMinimized ? Maximize2 : Minimize2}
+                  >
+                    {isMinimized ? "Expand" : "Minimize"}
+                  </Button>
+                </div>
+              </div>
 
-                {/* Message Input */}
-                <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-                  <div className="flex items-center gap-3">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
-                      onChange={handleFileSelect}
-                      className="hidden"
+              {!isMinimized && (
+                <>
+                  {/* Messages */}
+                  <div className="flex-1 min-h-0">
+                    <MessageList
+                      messages={messages}
+                      currentUserId="user1"
+                      typingUsers={typingUsers}
+                      showAvatars={true}
+                      showMetadata={false}
+                      autoScroll={true}
+                      className="h-full"
                     />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors text-gray-600 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
-                      title="Attach file"
-                    >
-                      <Paperclip className="w-5 h-5" />
-                    </button>
-                    <div className="flex-1 relative">
-                      <input
-                        ref={inputRef}
-                        type="text"
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.shiftKey) {
-                            e.preventDefault();
-                            handleSendMessage(e);
-                          }
-                        }}
-                        placeholder="Type your message..."
-                        className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-600 focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
-                      />
-                      <button
-                        type="button"
-                        className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-600 dark:text-gray-400"
-                      >
-                        <Smile className="w-5 h-5" />
-                      </button>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleSendMessage}
-                      disabled={!newMessage.trim() && uploadingFiles.length === 0}
-                      className={`p-3 rounded-lg transition-colors ${
-                        newMessage.trim() || uploadingFiles.length > 0
-                          ? "bg-blue-600 hover:bg-blue-700 text-white"
-                          : "bg-gray-300 dark:bg-gray-600 text-gray-500 cursor-not-allowed"
+                  </div>
+
+                  {/* Quick Replies */}
+                  {!sessionStarted && (
+                    <QuickReplies
+                      replies={[]}
+                      onReplySelect={handleQuickReply}
+                    />
+                  )}
+
+                  {/* Chat Input */}
+                  <ChatInput
+                    onSendMessage={handleSendMessage}
+                    placeholder="Type your message..."
+                    disabled={isLoading || connectionStatus === "disconnected"}
+                    showFileUpload={true}
+                    showEmoji={true}
+                    maxLength={2000}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* FAQ Section */}
+            <div
+              className={`p-6 rounded-xl shadow-lg border ${
+                isDark
+                  ? "bg-gray-800 border-gray-700"
+                  : "bg-white border-gray-200"
+              }`}
+            >
+              <h3
+                className={`text-xl font-semibold mb-6 flex items-center gap-2 ${
+                  isDark ? "text-white" : "text-gray-900"
+                }`}
+              >
+                <HelpCircle className="w-5 h-5" />
+                Frequently Asked Questions
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {faqItems.map((item, index) => (
+                  <details
+                    key={index}
+                    className={`group p-4 border rounded-lg ${
+                      isDark
+                        ? "border-gray-600 hover:border-gray-500"
+                        : "border-gray-200 hover:border-gray-300"
+                    }`}
+                  >
+                    <summary
+                      className={`cursor-pointer text-sm font-medium transition-colors hover:text-blue-600 ${
+                        isDark ? "text-gray-300" : "text-gray-700"
                       }`}
                     >
-                      <Send className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
+                      {item.question}
+                    </summary>
+                    <p
+                      className={`mt-3 text-sm leading-relaxed ${
+                        isDark ? "text-gray-400" : "text-gray-600"
+                      }`}
+                    >
+                      {item.answer}
+                    </p>
+                  </details>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>
