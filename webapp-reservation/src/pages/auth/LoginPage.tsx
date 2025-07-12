@@ -1,16 +1,25 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Mail, Lock, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTheme } from "../../contexts/ThemeContext";
-import { LoginFormData, FormErrors } from "../../types";
-import { Input } from "../../components/ui/input/Input";
-import { Button } from "../../components/ui/button/Button";
-import { ErrorMessage } from "../../components/ui/ErrorMessage";
+
+interface LoginFormData {
+  email: string;
+  password: string;
+}
+
+interface FormErrors {
+  email?: string;
+  password?: string;
+  submit?: string;
+}
 
 export const LoginPage: React.FC = () => {
   const { isDark } = useTheme();
-  const { login, loading, error, clearError } = useAuth();
+  const { login, isLoading } = useAuth();
+  const navigate = useNavigate();
+
   const [formData, setFormData] = useState<LoginFormData>({
     email: "",
     password: "",
@@ -40,7 +49,6 @@ export const LoginPage: React.FC = () => {
     e: React.FormEvent<HTMLFormElement>
   ): Promise<void> => {
     e.preventDefault();
-    clearError();
 
     const errors = validateForm();
 
@@ -51,9 +59,13 @@ export const LoginPage: React.FC = () => {
 
     setFormErrors({});
 
-    const result = await login(formData.email, formData.password);
-    if (!result.success) {
-      setFormErrors({ submit: result.message || "Login failed" });
+    try {
+      await login(formData.email, formData.password);
+      navigate("/dashboard");
+    } catch (error) {
+      setFormErrors({
+        submit: error instanceof Error ? error.message : "Login failed",
+      });
     }
   };
 
@@ -62,7 +74,7 @@ export const LoginPage: React.FC = () => {
 
     // Clear field error when user starts typing
     if (formErrors[field]) {
-      setFormErrors((prev) => ({ ...prev, [field]: "" }));
+      setFormErrors((prev) => ({ ...prev, [field]: undefined }));
     }
   };
 
@@ -88,7 +100,7 @@ export const LoginPage: React.FC = () => {
               left: "-10%",
               animation: "float 6s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-[500px] h-[500px] rounded-full opacity-15 blur-3xl animate-pulse ${
@@ -99,7 +111,7 @@ export const LoginPage: React.FC = () => {
               right: "-15%",
               animation: "float 8s ease-in-out infinite reverse",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-80 h-80 rounded-full opacity-10 blur-3xl animate-pulse ${
@@ -110,7 +122,7 @@ export const LoginPage: React.FC = () => {
               left: "-10%",
               animation: "float 7s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           {/* Additional Orbs for Enhanced Full Width Coverage */}
           <div
@@ -122,7 +134,7 @@ export const LoginPage: React.FC = () => {
               right: "25%",
               animation: "float 9s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-72 h-72 rounded-full opacity-12 blur-3xl animate-pulse ${
@@ -133,7 +145,7 @@ export const LoginPage: React.FC = () => {
               right: "10%",
               animation: "float 7s ease-in-out infinite reverse",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-80 h-80 rounded-full opacity-8 blur-3xl animate-pulse ${
@@ -144,7 +156,7 @@ export const LoginPage: React.FC = () => {
               left: "30%",
               animation: "float 10s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           {/* Extra Orbs for Edge Coverage */}
           <div
@@ -157,7 +169,7 @@ export const LoginPage: React.FC = () => {
               transform: "translateX(-50%)",
               animation: "float 11s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-64 h-64 rounded-full opacity-8 blur-3xl animate-pulse ${
@@ -169,7 +181,7 @@ export const LoginPage: React.FC = () => {
               transform: "translateX(50%)",
               animation: "float 8s ease-in-out infinite reverse",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-72 h-72 rounded-full opacity-12 blur-3xl animate-pulse ${
@@ -181,7 +193,7 @@ export const LoginPage: React.FC = () => {
               transform: "translateY(-50%) translateX(-25%)",
               animation: "float 9s ease-in-out infinite",
             }}
-          ></div>
+          />
 
           <div
             className={`absolute w-80 h-80 rounded-full opacity-10 blur-3xl animate-pulse ${
@@ -193,7 +205,7 @@ export const LoginPage: React.FC = () => {
               transform: "translateY(-50%) translateX(25%)",
               animation: "float 10s ease-in-out infinite reverse",
             }}
-          ></div>
+          />
         </div>
 
         {/* Animated Grid - Full Width */}
@@ -209,7 +221,7 @@ export const LoginPage: React.FC = () => {
               backgroundSize: "20px 20px",
               animation: "gridMove 20s linear infinite",
             }}
-          ></div>
+          />
         </div>
 
         {/* Gradient Overlay - Full Width */}
@@ -219,7 +231,7 @@ export const LoginPage: React.FC = () => {
               ? "bg-gradient-to-br from-gray-900/50 via-transparent to-gray-900/50"
               : "bg-gradient-to-br from-white/30 via-transparent to-white/30"
           }`}
-        ></div>
+        />
 
         {/* Additional Blur Layer for Edge Softening */}
         <div
@@ -228,7 +240,7 @@ export const LoginPage: React.FC = () => {
               ? "bg-gradient-to-r from-gray-900/20 via-transparent to-gray-900/20"
               : "bg-gradient-to-r from-blue-50/30 via-transparent to-purple-50/30"
           }`}
-        ></div>
+        />
       </div>
 
       {/* Content */}
@@ -292,9 +304,12 @@ export const LoginPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Error Messages */}
-          <ErrorMessage error={error} />
-          <ErrorMessage error={formErrors.submit} />
+          {/* Error Message */}
+          {formErrors.submit && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-300 text-red-700 rounded-lg">
+              {formErrors.submit}
+            </div>
+          )}
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -393,14 +408,14 @@ export const LoginPage: React.FC = () => {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={isLoading}
               className={`w-full py-3 px-4 rounded-lg font-medium transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                loading
+                isLoading
                   ? "bg-gray-400 cursor-not-allowed"
                   : "bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-lg hover:shadow-xl"
               }`}
             >
-              {loading ? (
+              {isLoading ? (
                 <div className="flex items-center justify-center">
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
                   Signing in...

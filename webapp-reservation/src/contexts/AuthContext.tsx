@@ -1,143 +1,142 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { AuthContextType, User, AuthResult } from '../types';
-import { authService } from '../services/auth/authService';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
+import { authService, User } from "../services/auth/authService";
+
+interface AuthContextType {
+  user: User | null;
+  token: string | null;
+  isLoading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-interface AuthProviderProps {
-  children: ReactNode;
-}
-
-export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({
+  children,
+}) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Check for existing token on app start
+  // Initialize auth state on app start
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const token = localStorage.getItem('cohub-token');
-        if (token) {
-          console.log('Found token, attempting to get current user...');
-          const userData = await authService.getCurrentUser();
-          if (userData) {
-            console.log('User data retrieved successfully:', userData);
+        const savedToken = localStorage.getItem("cohub-token");
+        const savedUser = localStorage.getItem("cohub-user");
+
+        if (savedToken) {
+          setToken(savedToken);
+
+          // If we have saved user data, use it immediately for better UX
+          if (savedUser) {
+            try {
+              const parsedUser = JSON.parse(savedUser);
+              setUser(parsedUser);
+            } catch (error) {
+              console.error("Failed to parse saved user data:", error);
+            }
+          }
+
+          // Verify token is still valid by fetching fresh user data
+          try {
+            const userData = await authService.getProfile(savedToken);
             setUser(userData);
-          } else {
-            console.warn('Failed to get user data, removing token');
-            localStorage.removeItem('cohub-token');
-            setError('Session expired. Please log in again.');
+            // Update localStorage with fresh user data
+            localStorage.setItem("cohub-user", JSON.stringify(userData));
+          } catch (error) {
+            console.error("Token validation failed:", error);
+
+            // Only clear auth if it's definitely an auth error (401/403)
+            // Don't clear on network errors, server errors, etc.
+            if (error instanceof Error) {
+              const isAuthError =
+                error.message.includes("Unauthorized") ||
+                error.message.includes("401") ||
+                error.message.includes("403");
+
+              if (isAuthError) {
+                console.log("Auth error detected, clearing stored credentials");
+                localStorage.removeItem("cohub-token");
+                localStorage.removeItem("cohub-user");
+                setToken(null);
+                setUser(null);
+              } else {
+                console.log(
+                  "Non-auth error, keeping stored credentials:",
+                  error.message
+                );
+                // Keep the saved user data for offline functionality
+              }
+            }
           }
         }
-      } catch (err) {
-        console.error('Auth initialization error:', err);
-        localStorage.removeItem('cohub-token');
-        setError('Authentication error. Please log in again.');
+      } catch (error) {
+        console.error("Auth initialization error:", error);
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
 
     initializeAuth();
   }, []);
 
-  const login = async (email: string, password: string): Promise<AuthResult> => {
-    setLoading(true);
-    setError(null);
-    
+  const login = async (email: string, password: string): Promise<void> => {
     try {
-      const result = await authService.login(email, password);
-      
-      if (result.success && result.user) {
-        setUser(result.user);
-        localStorage.setItem('cohub-token', result.token || '');
-        // Store refresh token if available
-        if (result.refreshToken) {
-          localStorage.setItem('cohub-refresh-token', result.refreshToken);
-        }
-      } else {
-        setError(result.message || 'Login failed');
-      }
-      
-      setLoading(false);
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Login failed';
-      setError(message);
-      setLoading(false);
-      return { success: false, message };
-    }
-  };
+      const response = await authService.login({ email, password });
 
-  const register = async (firstName: string, lastName: string, email: string, password: string): Promise<AuthResult> => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const result = await authService.register(firstName, lastName, email, password);
-      
-      if (result.success && result.user) {
-        setUser(result.user);
-        localStorage.setItem('cohub-token', result.token || '');
-        // Store refresh token if available
-        if (result.refreshToken) {
-          localStorage.setItem('cohub-refresh-token', result.refreshToken);
-        }
-      } else {
-        setError(result.message || 'Registration failed');
-      }
-      
-      setLoading(false);
-      return result;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Registration failed';
-      setError(message);
-      setLoading(false);
-      return { success: false, message };
+      setUser(response.user);
+      setToken(response.token);
+
+      // Store in localStorage
+      localStorage.setItem("cohub-token", response.token);
+      localStorage.setItem("cohub-user", JSON.stringify(response.user));
+    } catch (error) {
+      throw error;
     }
   };
 
   const logout = async (): Promise<void> => {
-    setLoading(true);
-    
     try {
-      await authService.logout();
-    } catch (err) {
-      console.error('Logout error:', err);
+      if (token) {
+        await authService.logout(token);
+      }
+    } catch (error) {
+      console.error("Logout error:", error);
     } finally {
+      // Clear state and localStorage regardless of API call success
       setUser(null);
-      localStorage.removeItem('cohub-token');
-      localStorage.removeItem('cohub-refresh-token');
-      setLoading(false);
+      setToken(null);
+      localStorage.removeItem("cohub-token");
+      localStorage.removeItem("cohub-user");
     }
   };
 
-  const clearError = (): void => {
-    setError(null);
-  };
-
-  const value: AuthContextType = {
-    user,
-    loading,
-    error,
-    login,
-    register,
-    logout,
-    clearError,
-  };
-
   return (
-    <AuthContext.Provider value={value}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        login,
+        logout,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );
 };
 
-export const useAuth = (): AuthContextType => {
+export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
   }
   return context;
 };

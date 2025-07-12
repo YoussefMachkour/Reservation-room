@@ -1,140 +1,176 @@
-import { User, AuthResult } from '../../types';
-import { authService as apiAuthService } from '../api/authService';
+// API Service Layer - handles all HTTP requests
+const API_URL = "http://localhost:8080/api/v1";
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface AuthResponse {
+  user: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email: string;
+    role: "admin" | "manager" | "user";
+    is_active: boolean;
+    phone?: string;
+    department?: string;
+    position?: string;
+    created_at: string;
+    updated_at: string;
+  };
+  token: string;
+}
+
+export interface User {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role: "admin" | "manager" | "user";
+  is_active: boolean;
+  phone?: string;
+  department?: string;
+  position?: string;
+  created_at: string;
+  updated_at: string;
+}
 
 class AuthService {
-  async login(email: string, password: string): Promise<AuthResult> {
-    try {
-      const response = await apiAuthService.login({ email, password });
-      
-      if (response.success && response.data) {
-        return {
-          success: true,
-          user: response.data.user,
-          token: response.data.token,
-          refreshToken: response.data.refreshToken,
-        };
+  // Helper method to handle API errors consistently
+  private async handleResponse(response: Response): Promise<any> {
+    if (!response.ok) {
+      let errorMessage = `HTTP ${response.status}`;
+
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorData.message || errorMessage;
+      } catch (parseError) {
+        // If we can't parse the error response, use status text
+        errorMessage = response.statusText || errorMessage;
       }
-      
-      return {
-        success: false,
-        message: response.message || 'Invalid credentials',
-      };
+
+      // Include status code for better error handling
+      const error = new Error(errorMessage);
+      (error as any).status = response.status;
+      throw error;
+    }
+
+    return response.json();
+  }
+
+  // Login user
+  async login(credentials: LoginRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(credentials),
+      });
+
+      return await this.handleResponse(response);
     } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Login failed',
-      };
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error(
+          "Unable to connect to server. Please check your connection."
+        );
+      }
+      throw error;
     }
   }
 
-  async register(firstName: string, lastName: string, email: string, password: string): Promise<AuthResult> {
+  // Get current user profile
+  async getProfile(token: string): Promise<User> {
     try {
-      const response = await apiAuthService.register({ firstName, lastName, email, password });
-      
-      if (response.success && response.data) {
-        return {
-          success: true,
-          user: response.data.user,
-          token: response.data.token,
-          refreshToken: response.data.refreshToken,
-        };
-      }
-      
-      return {
-        success: false,
-        message: response.message || 'Registration failed',
-      };
+      const response = await fetch(`${API_URL}/profile`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
+
+      const data = await this.handleResponse(response);
+      return data.user || data; // Handle different response structures
     } catch (error) {
-      return {
-        success: false,
-        message: error instanceof Error ? error.message : 'Registration failed',
-      };
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error(
+          "Unable to connect to server. Please check your connection."
+        );
+      }
+
+      // Check if it's specifically an auth error
+      if ((error as any).status === 401 || (error as any).status === 403) {
+        throw new Error("Unauthorized");
+      }
+
+      throw error;
     }
   }
 
-  async getCurrentUser(): Promise<User | null> {
+  // Logout user
+  async logout(token: string): Promise<void> {
     try {
-      const token = localStorage.getItem('cohub-token');
-      if (!token) {
-        console.log('No token found');
-        return null;
-      }
+      const response = await fetch(`${API_URL}/auth/logout`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      });
 
-      console.log('Attempting to get profile with token...');
-      const response = await apiAuthService.getProfile();
-      
-      if (response.success && response.data) {
-        console.log('Profile retrieved successfully:', response.data);
-        return response.data;
+      // Don't throw on logout errors - we'll clear storage anyway
+      if (!response.ok) {
+        console.warn(
+          "Logout API call failed, but continuing with local cleanup"
+        );
       }
-      
-      console.error('Failed to get profile:', response.message);
-      
-      // If it's a server error, we might want to keep the token for retry
-      if (response.message?.includes('internal_server_error') || response.message?.includes('500')) {
-        console.warn('Server error detected, keeping token for potential retry');
-        // Don't clear token for server errors - user might want to retry
-        return null;
-      }
-      
-      // For auth errors (401, 403), clear the token
-      if (response.message?.includes('Unauthorized') || response.message?.includes('401') || response.message?.includes('403')) {
-        console.warn('Auth error detected, clearing token');
-        localStorage.removeItem('cohub-token');
-      }
-      
-      return null;
-    } catch (error: any) {
-      console.error('Get current user error:', error);
-      
-      // Check if it's a network error or server error
-      if (error.message?.includes('500') || error.message?.includes('internal_server_error') || 
-          error.message?.includes('Network Error') || error.message?.includes('fetch')) {
-        console.warn('Network/Server error, keeping token for retry');
-        return null;
-      }
-      
-      // For other errors, clear token
-      localStorage.removeItem('cohub-token');
-      return null;
+    } catch (error) {
+      // Don't throw error for logout - we'll clear local storage anyway
+      console.error("Logout API error:", error);
     }
   }
 
-  async logout(): Promise<void> {
+  // Register user (if you need it later)
+  async register(userData: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    password: string;
+    phone?: string;
+    department?: string;
+    position?: string;
+  }): Promise<AuthResponse> {
     try {
-      // For now, just simulate API call
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Uncomment when API is ready:
-      // await apiClient.post('/auth/logout');
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(userData),
+      });
+
+      return await this.handleResponse(response);
     } catch (error) {
-      console.error('Logout error:', error);
-      // Don't throw error, as we want to clear local storage anyway
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error(
+          "Unable to connect to server. Please check your connection."
+        );
+      }
+      throw error;
     }
   }
 
-  async refreshToken(): Promise<string | null> {
+  // Token validation helper
+  async validateToken(token: string): Promise<boolean> {
     try {
-      const currentToken = localStorage.getItem('cohub-token');
-      if (!currentToken) return null;
-      
-      // For now, we don't have a refresh token in localStorage, so we'll skip this
-      // In a real implementation, you'd store and retrieve the refresh token
-      const refreshToken = localStorage.getItem('cohub-refresh-token');
-      if (!refreshToken) return null;
-      
-      const response = await apiAuthService.refreshToken({ refreshToken });
-      
-      if (response.success && response.data) {
-        localStorage.setItem('cohub-token', response.data.token);
-        localStorage.setItem('cohub-refresh-token', response.data.refreshToken);
-        return response.data.token;
-      }
-      
-      return null;
+      await this.getProfile(token);
+      return true;
     } catch (error) {
-      console.error('Token refresh error:', error);
-      return null;
+      return false;
     }
   }
 }

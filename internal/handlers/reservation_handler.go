@@ -4,6 +4,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -47,8 +48,25 @@ func NewReservationHandler(reservationService *services.ReservationService) *Res
 // @Failure 409 {object} dto.ErrorResponse
 // @Router /reservations [post]
 func (h *ReservationHandler) CreateReservation(c *gin.Context) {
+	log.Printf("🎯 CreateReservation: Handler started")
+	log.Printf("📍 Request: %s %s", c.Request.Method, c.Request.URL.Path)
+
+	// Debug context values
+	if userID, exists := c.Get("user_id"); exists {
+		log.Printf("👤 user_id in context: %v (type: %T)", userID, userID)
+	} else {
+		log.Printf("❌ user_id NOT found in context")
+	}
+
+	if userRole, exists := c.Get("user_role"); exists {
+		log.Printf("🎭 user_role in context: %v (type: %T)", userRole, userRole)
+	} else {
+		log.Printf("❌ user_role NOT found in context")
+	}
+
 	var req dto.CreateReservationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		log.Printf("❌ JSON binding failed: %v", err)
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{
 			Error:   "Invalid request data",
 			Message: err.Error(),
@@ -56,8 +74,12 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		return
 	}
 
+	log.Printf("📝 Parsed request: %+v", req)
+
+	log.Printf("🔓 Attempting to extract user ID...")
 	userID, err := h.extractUserID(c)
 	if err != nil {
+		log.Printf("❌ extractUserID failed: %v", err)
 		c.JSON(http.StatusUnauthorized, dto.ErrorResponse{
 			Error:   "Unauthorized",
 			Message: err.Error(),
@@ -65,8 +87,11 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		return
 	}
 
+	log.Printf("✅ User ID extracted successfully: %s", userID.String())
+
 	// Validate the request (using built-in validation)
 	if err := req.Validate(); err != nil {
+		log.Printf("❌ Request validation failed: %v", err)
 		c.JSON(http.StatusBadRequest, dto.ErrorResponse{
 			Error:   "Validation failed",
 			Message: err.Error(),
@@ -74,8 +99,12 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		return
 	}
 
+	log.Printf("✅ Request validation passed")
+	log.Printf("🔄 Calling reservation service...")
+
 	reservation, err := h.reservationService.CreateReservation(&req, userID)
 	if err != nil {
+		log.Printf("❌ Service error: %v", err)
 		status := h.determineErrorStatus(err)
 		c.JSON(status, dto.ErrorResponse{
 			Error:   "Failed to create reservation",
@@ -83,6 +112,8 @@ func (h *ReservationHandler) CreateReservation(c *gin.Context) {
 		})
 		return
 	}
+
+	log.Printf("✅ Reservation created successfully: %+v", reservation)
 
 	c.JSON(http.StatusCreated, dto.SuccessResponse{
 		Success: true,
@@ -384,17 +415,32 @@ func (h *ReservationHandler) GetAllReservations(c *gin.Context) {
 
 // extractUserID extracts and validates user ID from context
 func (h *ReservationHandler) extractUserID(c *gin.Context) (uuid.UUID, error) {
-	userID, exists := c.Get("user_id")
+	log.Printf("🔍 extractUserID: Starting extraction")
+
+	userIDInterface, exists := c.Get("user_id")
 	if !exists {
-		return uuid.Nil, errors.New("user not authenticated")
+		log.Printf("❌ extractUserID: user_id not found in context")
+		return uuid.Nil, fmt.Errorf("user not authenticated")
 	}
 
-	uid, ok := userID.(uuid.UUID)
+	log.Printf("✅ extractUserID: user_id found: %v (type: %T)", userIDInterface, userIDInterface)
+
+	userIDStr, ok := userIDInterface.(string)
 	if !ok {
-		return uuid.Nil, errors.New("invalid user ID format")
+		log.Printf("❌ extractUserID: type assertion failed. Expected string, got %T", userIDInterface)
+		return uuid.Nil, fmt.Errorf("invalid user context type")
 	}
 
-	return uid, nil
+	log.Printf("✅ extractUserID: type assertion successful: '%s'", userIDStr)
+
+	userUUID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Printf("❌ extractUserID: UUID parsing failed: %v", err)
+		return uuid.Nil, fmt.Errorf("invalid user ID format: %v", err)
+	}
+
+	log.Printf("✅ extractUserID: UUID parsed successfully: %s", userUUID.String())
+	return userUUID, nil
 }
 
 // validatePaginationParams validates and adjusts pagination parameters
@@ -507,8 +553,45 @@ func (h *ReservationHandler) validateReservationStatus(status string) bool {
 // @Failure 500 {object} dto.ErrorResponse
 // @Router /reservations/my [get]
 func (h *ReservationHandler) GetUserReservations(c *gin.Context) {
-	userID, err := h.extractUserID(c)
+	log.Printf("🎯 GetUserReservations: Handler started")
+	log.Printf("📍 Request: %s %s", c.Request.Method, c.Request.URL.Path)
+	log.Printf("🌐 Remote Address: %s", c.ClientIP())
+
+	// Check ALL context values
+	log.Printf("🔍 Inspecting Gin Context:")
+	contextMap := make(map[string]interface{})
+
+	// Use reflection to get all context keys and values
+	if c.Keys != nil {
+		for key, value := range c.Keys {
+			contextMap[fmt.Sprintf("%v", key)] = value
+			log.Printf("  📝 Context[%v] = %v (type: %T)", key, value, value)
+		}
+	} else {
+		log.Printf("  ❌ c.Keys is nil")
+	}
+
+	// Specifically check auth-related values
+	userIDVal, userIDExists := c.Get("user_id")
+	userRoleVal, userRoleExists := c.Get("user_role")
+	claimsVal, claimsExists := c.Get("token_claims")
+
+	log.Printf("🔑 Auth Context Check:")
+	log.Printf("  user_id exists: %v, value: %v, type: %T", userIDExists, userIDVal, userIDVal)
+	log.Printf("  user_role exists: %v, value: %v, type: %T", userRoleExists, userRoleVal, userRoleVal)
+	log.Printf("  token_claims exists: %v, value: %v, type: %T", claimsExists, claimsVal, claimsVal)
+
+	// Check request headers
+	log.Printf("🌐 Request Headers:")
+	for name, values := range c.Request.Header {
+		log.Printf("  %s: %v", name, values)
+	}
+
+	// Now try extractUserID with detailed logging
+	log.Printf("🔓 Attempting to extract user ID...")
+	userID, err := h.extractUserIDWithDetailedLogging(c)
 	if err != nil {
+		log.Printf("❌ GetUserReservations: Failed to extract user ID: %v", err)
 		c.JSON(http.StatusUnauthorized, dto.ErrorResponse{
 			Error:   "Unauthorized",
 			Message: err.Error(),
@@ -516,27 +599,28 @@ func (h *ReservationHandler) GetUserReservations(c *gin.Context) {
 		return
 	}
 
+	log.Printf("✅ GetUserReservations: User ID extracted successfully: %s", userID.String())
+
+	// Continue with rest of your logic...
 	page := utils.GetIntQuery(c, "page", 1)
 	limit := utils.GetIntQuery(c, "limit", 20)
 	page, limit = h.validatePaginationParams(page, limit)
 	offset := (page - 1) * limit
 
-	// Build filters from query parameters
 	filters := h.buildUserFilters(c)
 
 	var reservations interface{}
 	var total int64
 
-	// If filters are provided, use search functionality
 	if len(filters) > 0 {
-		filters["user_id"] = userID // Ensure user can only see their own reservations
+		filters["user_id"] = userID
 		reservations, total, err = h.reservationService.SearchReservations(filters, offset, limit, userID)
 	} else {
-		// Use simple user reservations method
 		reservations, total, err = h.reservationService.GetUserReservations(userID, offset, limit)
 	}
 
 	if err != nil {
+		log.Printf("❌ Service error: %v", err)
 		c.JSON(http.StatusInternalServerError, dto.ErrorResponse{
 			Error:   "Failed to get reservations",
 			Message: err.Error(),
@@ -544,8 +628,83 @@ func (h *ReservationHandler) GetUserReservations(c *gin.Context) {
 		return
 	}
 
+	log.Printf("✅ Successfully retrieved %d reservations", total)
 	response := dto.NewPaginatedResponse(reservations, total, page, limit)
 	c.JSON(http.StatusOK, response)
+}
+
+// Detailed version of extractUserID for debugging
+func (h *ReservationHandler) extractUserIDWithDetailedLogging(c *gin.Context) (uuid.UUID, error) {
+	log.Printf("🔍 extractUserID: Starting detailed extraction")
+
+	// Step 1: Check if context exists
+	if c == nil {
+		log.Printf("❌ extractUserID: gin.Context is nil")
+		return uuid.Nil, fmt.Errorf("gin context is nil")
+	}
+
+	// Step 2: Check if Keys map exists
+	if c.Keys == nil {
+		log.Printf("❌ extractUserID: c.Keys is nil")
+		return uuid.Nil, fmt.Errorf("context keys map is nil")
+	}
+
+	log.Printf("✅ extractUserID: Context and Keys exist")
+	log.Printf("📊 extractUserID: Keys map length: %d", len(c.Keys))
+
+	// Step 3: List all keys
+	log.Printf("🗝️ extractUserID: All available keys:")
+	for key := range c.Keys {
+		log.Printf("    - %v (type: %T)", key, key)
+	}
+
+	// Step 4: Try to get user_id
+	userIDInterface, exists := c.Get("user_id")
+	if !exists {
+		log.Printf("❌ extractUserID: 'user_id' key not found in context")
+
+		// Try alternative keys that might exist
+		alternativeKeys := []string{"userID", "userId", "user", "uid"}
+		for _, altKey := range alternativeKeys {
+			if val, altExists := c.Get(altKey); altExists {
+				log.Printf("🔍 extractUserID: Found alternative key '%s': %v", altKey, val)
+			}
+		}
+
+		return uuid.Nil, fmt.Errorf("user not authenticated - user_id not found in context")
+	}
+
+	log.Printf("✅ extractUserID: user_id found: %v (type: %T)", userIDInterface, userIDInterface)
+
+	// Step 5: Type assertion
+	userIDStr, ok := userIDInterface.(string)
+	if !ok {
+		log.Printf("❌ extractUserID: Type assertion failed")
+		log.Printf("    Expected: string")
+		log.Printf("    Got: %T", userIDInterface)
+		log.Printf("    Value: %v", userIDInterface)
+		return uuid.Nil, fmt.Errorf("invalid user context type: expected string, got %T", userIDInterface)
+	}
+
+	log.Printf("✅ extractUserID: Type assertion successful: '%s'", userIDStr)
+
+	// Step 6: Validate string is not empty
+	if userIDStr == "" {
+		log.Printf("❌ extractUserID: user_id string is empty")
+		return uuid.Nil, fmt.Errorf("user_id is empty")
+	}
+
+	// Step 7: Parse UUID
+	userUUID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		log.Printf("❌ extractUserID: UUID parsing failed")
+		log.Printf("    Input string: '%s'", userIDStr)
+		log.Printf("    Error: %v", err)
+		return uuid.Nil, fmt.Errorf("invalid user ID format '%s': %v", userIDStr, err)
+	}
+
+	log.Printf("✅ extractUserID: UUID parsed successfully: %s", userUUID.String())
+	return userUUID, nil
 }
 
 // GetUserUpcomingReservations retrieves upcoming reservations for the current user

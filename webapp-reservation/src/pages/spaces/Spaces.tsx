@@ -1,4 +1,4 @@
-// pages/Spaces.tsx - Complete new version
+// pages/Spaces.tsx - Updated to match backend DTO
 import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -14,29 +14,15 @@ import {
   Building2,
   X,
 } from "lucide-react";
-import { Space, SpaceFilters } from "../../types";
-
-// Define the space type that matches what this component expects
-interface ComponentSpace extends Space {
-  building: string;
-  floor: number;
-  room_number: string;
-  equipment: any[];
-  status: string;
-  price_per_hour: number;
-  price_per_day: number;
-  photos: string[];
-  max_booking_duration: number;
-}
-
-// Space type for filtering
-type SpaceTypeFilter = 
-  | 'meeting_room'
-  | 'office' 
-  | 'auditorium'
-  | 'open_space'
-  | 'hot_desk'
-  | 'conference_room';
+import {
+  Space,
+  SpaceFilters,
+  ComponentSpace,
+  mapApiSpaceToComponentSpace,
+  getSpaceTypeDisplay,
+  getStatusColor,
+  SPACE_TYPES,
+} from "../../types/space";
 import { spaceService } from "../../services/api";
 import { SpaceCard } from "../../components/spaces/card/SpaceCard";
 
@@ -66,32 +52,6 @@ export const SpacesPage: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [favoriteSpaces, setFavoriteSpaces] = useState<string[]>([]);
 
-  // Space types for filtering
-  const spaceTypes: { value: SpaceTypeFilter; label: string; icon: string }[] = [
-    { value: "meeting_room", label: "Meeting Room", icon: "👥" },
-    { value: "office", label: "Office", icon: "🏢" },
-    { value: "auditorium", label: "Auditorium", icon: "🎭" },
-    { value: "open_space", label: "Open Space", icon: "🌐" },
-    { value: "hot_desk", label: "Hot Desk", icon: "💻" },
-    { value: "conference_room", label: "Conference Room", icon: "📊" },
-  ];
-
-  // Mapping function to convert API Space to ComponentSpace
-  const mapApiSpaceToComponentSpace = (apiSpace: Space): ComponentSpace => {
-    return {
-      ...apiSpace,
-      building: apiSpace.location?.building || 'Unknown Building',
-      floor: apiSpace.location?.floor || 1,
-      room_number: apiSpace.location?.room || 'N/A',
-      equipment: apiSpace.amenities || [],
-      status: apiSpace.available ? 'available' : 'unavailable',
-      price_per_hour: apiSpace.pricePerHour,
-      price_per_day: apiSpace.pricePerDay,
-      photos: apiSpace.images || [],
-      max_booking_duration: 480, // Default 8 hours in minutes
-    };
-  };
-
   // Load data on component mount
   useEffect(() => {
     const loadSpaces = async () => {
@@ -101,10 +61,12 @@ export const SpacesPage: React.FC = () => {
         // Load spaces from API
         const spacesResponse = await spaceService.getSpaces();
         if (spacesResponse.success && spacesResponse.data) {
-          const mappedSpaces = spacesResponse.data.map(mapApiSpaceToComponentSpace);
+          const mappedSpaces = spacesResponse.data.map(
+            mapApiSpaceToComponentSpace
+          );
           setSpaces(mappedSpaces);
         } else {
-          throw new Error(spacesResponse.message || 'Failed to load spaces');
+          throw new Error(spacesResponse.message || "Failed to load spaces");
         }
 
         // Load buildings from API
@@ -120,7 +82,9 @@ export const SpacesPage: React.FC = () => {
         }
       } catch (error) {
         console.error("Error loading spaces:", error);
-        setError(error instanceof Error ? error.message : 'Failed to load spaces');
+        setError(
+          error instanceof Error ? error.message : "Failed to load spaces"
+        );
       } finally {
         setLoading(false);
       }
@@ -142,7 +106,7 @@ export const SpacesPage: React.FC = () => {
     setSearchParams(params);
   }, [searchTerm, filters, setSearchParams]);
 
-  // Filter spaces
+  // Filter spaces - Updated to work with string types
   const filteredSpaces = spaces.filter((space) => {
     const matchesSearch =
       searchTerm === "" ||
@@ -150,9 +114,9 @@ export const SpacesPage: React.FC = () => {
       space.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       space.building?.toLowerCase().includes(searchTerm.toLowerCase());
 
-    const matchesType = !filters.type || 
-      (space.type?.slug === filters.type) || 
-      (space.type?.name?.toLowerCase().includes(filters.type.toLowerCase()));
+    // Updated type matching for string types from backend
+    const matchesType = !filters.type || space.type === filters.type;
+
     const matchesBuilding =
       !filters.building || space.building === filters.building;
     const matchesCapacity =
@@ -174,9 +138,12 @@ export const SpacesPage: React.FC = () => {
     totalSpaces: spaces.length,
     availableSpaces: spaces.filter((s) => s.status === "available").length,
     buildings: new Set(spaces.map((s) => s.building)).size,
-    avgPrice: Math.round(
-      spaces.reduce((sum, s) => sum + s.price_per_hour, 0) / spaces.length
-    ),
+    avgPrice:
+      spaces.length > 0
+        ? Math.round(
+            spaces.reduce((sum, s) => sum + s.price_per_hour, 0) / spaces.length
+          )
+        : 0,
   };
 
   // Handlers
@@ -382,7 +349,7 @@ export const SpacesPage: React.FC = () => {
           >
             All Types
           </button>
-          {spaceTypes.map((type) => (
+          {SPACE_TYPES.map((type) => (
             <button
               key={type.value}
               onClick={() => handleFilterChange("type", type.value)}
@@ -540,8 +507,8 @@ export const SpacesPage: React.FC = () => {
             viewMode === "grid" ? (
               <SpaceCard
                 key={space.id}
-                space={space as any} // Temporary type assertion for compatibility
-                onBookNow={handleBookSpace as any}
+                space={space}
+                onBookNow={handleBookSpace}
               />
             ) : (
               <SpaceListItem
@@ -574,31 +541,6 @@ const SpaceListItem: React.FC<SpaceListItemProps> = ({
   onToggleFavorite,
 }) => {
   const navigate = useNavigate();
-
-  const getSpaceTypeDisplay = (type: any) => {
-    if (typeof type === 'string') {
-      return type
-        .split("_")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
-    }
-    return type?.name || 'Unknown Type';
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "available":
-        return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-      case "maintenance":
-        return "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200";
-      case "out_of_service":
-        return "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200";
-      case "reserved":
-        return "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200";
-      default:
-        return "bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200";
-    }
-  };
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow duration-200">
@@ -689,7 +631,7 @@ const SpaceListItem: React.FC<SpaceListItemProps> = ({
                   key={index}
                   className="inline-block bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 px-2 py-1 rounded text-xs"
                 >
-                  {eq.name}
+                  {typeof eq === "string" ? eq : eq.name}
                 </span>
               ))}
               {space.equipment.length > 4 && (

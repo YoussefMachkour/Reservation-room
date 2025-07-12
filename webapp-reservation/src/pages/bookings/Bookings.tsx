@@ -1,43 +1,66 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, Clock, Filter, Plus, Search, Grid3X3, List, Download, RefreshCw } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, addMonths, subMonths } from 'date-fns';
-import { Button } from '../../components/ui/button/Button';
-import { Input } from '../../components/ui/input/Input';
-import { LoadingSpinner } from '../../components/ui/LoadingSpinner';
-import { ErrorMessage } from '../../components/ui/ErrorMessage';
-import { ReservationCard } from '../../components/booking/card/BookingCard';
-import { BookingModal } from '../../components/booking/BookingModal';
-import { BookingCalendar } from '../../components/booking/calendar/BookingCalendar';
-import { useAuth } from '../../contexts/AuthContext';
-import { reservationService, spaceService } from '../../services/api';
-import { formatReservationStatus } from '../../utils/bookingHelpers';
-import type { Reservation, ReservationStatus, BookingFormData } from '../../types/booking';
-import type { Space } from '../../types';
+import React, { useState, useEffect } from "react";
+import {
+  Calendar,
+  Clock,
+  Filter,
+  Plus,
+  Search,
+  Grid3X3,
+  List,
+  Download,
+  RefreshCw,
+} from "lucide-react";
+import {
+  format,
+  startOfMonth,
+  endOfMonth,
+  addMonths,
+  subMonths,
+} from "date-fns";
+import { Button } from "../../components/ui/button/Button";
+import { Input } from "../../components/ui/input/Input";
+import { LoadingSpinner } from "../../components/ui/LoadingSpinner";
+import { ErrorMessage } from "../../components/ui/ErrorMessage";
+import { ReservationCard } from "../../components/booking/card/BookingCard";
+import { BookingModal } from "../../components/booking/BookingModal";
+import { BookingCalendar } from "../../components/booking/calendar/BookingCalendar";
+import { useAuth } from "../../contexts/AuthContext";
+import { reservationService, spaceService } from "../../services/api";
+import { formatReservationStatus } from "../../utils/bookingHelpers";
+import type {
+  Reservation,
+  ReservationStatus,
+  BookingFormData,
+} from "../../types/booking";
+import type { Space } from "../../types/space";
 
-type ViewMode = 'all' | 'upcoming' | 'past' | 'active';
-type StatusFilter = 'all' | ReservationStatus;
-type DisplayMode = 'list' | 'grid' | 'calendar';
+type ViewMode = "all" | "upcoming" | "past" | "active";
+type StatusFilter = "all" | ReservationStatus;
+type DisplayMode = "list" | "grid" | "calendar";
 
 export const Bookings: React.FC = () => {
   const { user } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
-  const [filteredReservations, setFilteredReservations] = useState<Reservation[]>([]);
+  const [filteredReservations, setFilteredReservations] = useState<
+    Reservation[]
+  >([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Display and filter states
-  const [displayMode, setDisplayMode] = useState<DisplayMode>('list');
-  const [viewMode, setViewMode] = useState<ViewMode>('all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [displayMode, setDisplayMode] = useState<DisplayMode>("list");
+  const [viewMode, setViewMode] = useState<ViewMode>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-  const [selectedSpaceFilter, setSelectedSpaceFilter] = useState<string>('all');
-  
+  const [selectedSpaceFilter, setSelectedSpaceFilter] = useState<string>("all");
+
   // Modal states
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
-  const [editingReservation, setEditingReservation] = useState<Reservation | null>(null);
+  const [editingReservation, setEditingReservation] =
+    useState<Reservation | null>(null);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
 
@@ -49,7 +72,7 @@ export const Bookings: React.FC = () => {
     active: 0,
     confirmed: 0,
     pending: 0,
-    cancelled: 0
+    cancelled: 0,
   });
 
   // Load initial data
@@ -63,22 +86,29 @@ export const Bookings: React.FC = () => {
   useEffect(() => {
     filterReservations();
     calculateStats();
-  }, [reservations, viewMode, statusFilter, searchQuery, selectedMonth, selectedSpaceFilter]);
+  }, [
+    reservations,
+    viewMode,
+    statusFilter,
+    searchQuery,
+    selectedMonth,
+    selectedSpaceFilter,
+  ]);
 
   const loadReservations = async () => {
     try {
       setIsLoading(true);
       setError(null);
       const response = await reservationService.getUserReservations();
-      
+
       if (response.success && response.data) {
         setReservations(response.data);
       } else {
-        throw new Error(response.message || 'Failed to load reservations');
+        throw new Error(response.message || "Failed to load reservations");
       }
     } catch (err: any) {
-      setError(err.message || 'Failed to load reservations');
-      console.error('Error loading reservations:', err);
+      setError(err.message || "Failed to load reservations");
+      console.error("Error loading reservations:", err);
     } finally {
       setIsLoading(false);
     }
@@ -90,30 +120,32 @@ export const Bookings: React.FC = () => {
       if (response.success && response.data) {
         setSpaces(response.data);
       } else {
-        console.error('Failed to load spaces:', response.message);
+        console.error("Failed to load spaces:", response.message);
       }
     } catch (err) {
-      console.error('Error loading spaces:', err);
+      console.error("Error loading spaces:", err);
     }
   };
 
   const calculateStats = () => {
     const now = new Date();
-    
+
     const newStats = {
       total: reservations.length,
-      upcoming: reservations.filter(r => new Date(r.start_time) > now && r.status === 'confirmed').length,
-      past: reservations.filter(r => new Date(r.end_time) < now).length,
-      active: reservations.filter(r => {
+      upcoming: reservations.filter(
+        (r) => new Date(r.start_time) > now && r.status === "confirmed"
+      ).length,
+      past: reservations.filter((r) => new Date(r.end_time) < now).length,
+      active: reservations.filter((r) => {
         const start = new Date(r.start_time);
         const end = new Date(r.end_time);
-        return start <= now && end > now && r.status === 'confirmed';
+        return start <= now && end > now && r.status === "confirmed";
       }).length,
-      confirmed: reservations.filter(r => r.status === 'confirmed').length,
-      pending: reservations.filter(r => r.status === 'pending').length,
-      cancelled: reservations.filter(r => r.status === 'cancelled').length
+      confirmed: reservations.filter((r) => r.status === "confirmed").length,
+      pending: reservations.filter((r) => r.status === "pending").length,
+      cancelled: reservations.filter((r) => r.status === "cancelled").length,
     };
-    
+
     setStats(newStats);
   };
 
@@ -125,45 +157,48 @@ export const Bookings: React.FC = () => {
 
     // Apply view mode filter
     switch (viewMode) {
-      case 'upcoming':
-        filtered = filtered.filter(r => new Date(r.start_time) > now && r.status === 'confirmed');
+      case "upcoming":
+        filtered = filtered.filter(
+          (r) => new Date(r.start_time) > now && r.status === "confirmed"
+        );
         break;
-      case 'past':
-        filtered = filtered.filter(r => new Date(r.end_time) < now);
+      case "past":
+        filtered = filtered.filter((r) => new Date(r.end_time) < now);
         break;
-      case 'active':
-        filtered = filtered.filter(r => {
+      case "active":
+        filtered = filtered.filter((r) => {
           const start = new Date(r.start_time);
           const end = new Date(r.end_time);
-          return start <= now && end > now && r.status === 'confirmed';
+          return start <= now && end > now && r.status === "confirmed";
         });
         break;
     }
 
     // Apply status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(r => r.status === statusFilter);
+    if (statusFilter !== "all") {
+      filtered = filtered.filter((r) => r.status === statusFilter);
     }
 
     // Apply space filter
-    if (selectedSpaceFilter !== 'all') {
-      filtered = filtered.filter(r => r.space_id === selectedSpaceFilter);
+    if (selectedSpaceFilter !== "all") {
+      filtered = filtered.filter((r) => r.space_id === selectedSpaceFilter);
     }
 
     // Apply search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(r =>
-        r.title.toLowerCase().includes(query) ||
-        r.description?.toLowerCase().includes(query) ||
-        r.space?.name.toLowerCase().includes(query) ||
-        r.space?.building.toLowerCase().includes(query)
+      filtered = filtered.filter(
+        (r) =>
+          r.title.toLowerCase().includes(query) ||
+          r.description?.toLowerCase().includes(query) ||
+          r.space?.name.toLowerCase().includes(query) ||
+          r.space?.building.toLowerCase().includes(query)
       );
     }
 
     // Apply month filter for calendar view or when month filter is active
-    if (displayMode === 'calendar' || viewMode === 'all') {
-      filtered = filtered.filter(r => {
+    if (displayMode === "calendar" || viewMode === "all") {
+      filtered = filtered.filter((r) => {
         const startTime = new Date(r.start_time);
         return startTime >= monthStart && startTime <= monthEnd;
       });
@@ -188,18 +223,18 @@ export const Bookings: React.FC = () => {
         endTime: data.end_time,
         participantCount: data.participant_count,
         title: data.title,
-        notes: data.description
+        notes: data.description,
       };
 
       await reservationService.createReservation(reservationData);
       setIsBookingModalOpen(false);
       setSelectedSpace(null);
       await loadReservations();
-      
+
       // Show success message (you can add a toast notification here)
-      console.log('Booking created successfully');
+      console.log("Booking created successfully");
     } catch (err: any) {
-      setBookingError(err.message || 'Failed to create booking');
+      setBookingError(err.message || "Failed to create booking");
     } finally {
       setBookingLoading(false);
     }
@@ -212,40 +247,50 @@ export const Bookings: React.FC = () => {
       setBookingLoading(true);
       setBookingError(null);
 
-      // Convert to the format expected by reservationService.updateReservation  
+      // Convert to the format expected by reservationService.updateReservation
       const updateData = {
         startDate: data.start_date,
         endDate: data.end_date,
         startTime: data.start_time,
         endTime: data.end_time,
-        notes: data.description
+        notes: data.description,
       };
 
-      await reservationService.updateReservation(editingReservation.id, updateData);
+      await reservationService.updateReservation(
+        editingReservation.id,
+        updateData
+      );
       setIsBookingModalOpen(false);
       setEditingReservation(null);
       await loadReservations();
-      
-      console.log('Booking updated successfully');
+
+      console.log("Booking updated successfully");
     } catch (err: any) {
-      setBookingError(err.message || 'Failed to update booking');
+      setBookingError(err.message || "Failed to update booking");
     } finally {
       setBookingLoading(false);
     }
   };
 
   const handleCancelReservation = async (reservation: Reservation) => {
-    const confirmed = window.confirm('Are you sure you want to cancel this reservation?');
+    const confirmed = window.confirm(
+      "Are you sure you want to cancel this reservation?"
+    );
     if (!confirmed) return;
 
-    const reason = prompt('Please provide a reason for cancellation (optional):');
-    
+    const reason = prompt(
+      "Please provide a reason for cancellation (optional):"
+    );
+
     try {
-      await reservationService.cancelReservation(reservation.id, reason || undefined);
+      await reservationService.cancelReservation(
+        reservation.id,
+        reason || undefined
+      );
       await loadReservations();
-      console.log('Reservation cancelled successfully');
+      console.log("Reservation cancelled successfully");
     } catch (err: any) {
-      setError(err.message || 'Failed to cancel reservation');
+      setError(err.message || "Failed to cancel reservation");
     }
   };
 
@@ -253,9 +298,9 @@ export const Bookings: React.FC = () => {
     try {
       await reservationService.checkIn(reservation.id);
       await loadReservations();
-      console.log('Checked in successfully');
+      console.log("Checked in successfully");
     } catch (err: any) {
-      setError(err.message || 'Failed to check in');
+      setError(err.message || "Failed to check in");
     }
   };
 
@@ -263,9 +308,9 @@ export const Bookings: React.FC = () => {
     try {
       await reservationService.checkOut(reservation.id);
       await loadReservations();
-      console.log('Checked out successfully');
+      console.log("Checked out successfully");
     } catch (err: any) {
-      setError(err.message || 'Failed to check out');
+      setError(err.message || "Failed to check out");
     }
   };
 
@@ -278,7 +323,7 @@ export const Bookings: React.FC = () => {
       setIsBookingModalOpen(true);
       setBookingError(null);
     } else {
-      setError('No spaces available for booking');
+      setError("No spaces available for booking");
     }
   };
 
@@ -290,7 +335,7 @@ export const Bookings: React.FC = () => {
       setIsBookingModalOpen(true);
       setBookingError(null);
     } else {
-      setError('Space information not available for this reservation');
+      setError("Space information not available for this reservation");
     }
   };
 
@@ -308,23 +353,27 @@ export const Bookings: React.FC = () => {
 
   const handleExport = () => {
     // Basic CSV export functionality
-    const csvData = filteredReservations.map(r => ({
+    const csvData = filteredReservations.map((r) => ({
       Title: r.title,
-      Space: r.space?.name || 'Unknown',
-      'Start Time': r.start_time,
-      'End Time': r.end_time,
+      Space: r.space?.name || "Unknown",
+      "Start Time": r.start_time,
+      "End Time": r.end_time,
       Status: r.status,
-      Participants: r.participant_count
+      Participants: r.participant_count,
     }));
 
-    const csvContent = "data:text/csv;charset=utf-8," 
-      + "Title,Space,Start Time,End Time,Status,Participants\n"
-      + csvData.map(row => Object.values(row).join(",")).join("\n");
-    
+    const csvContent =
+      "data:text/csv;charset=utf-8," +
+      "Title,Space,Start Time,End Time,Status,Participants\n" +
+      csvData.map((row) => Object.values(row).join(",")).join("\n");
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `bookings-${format(new Date(), 'yyyy-MM-dd')}.csv`);
+    link.setAttribute(
+      "download",
+      `bookings-${format(new Date(), "yyyy-MM-dd")}.csv`
+    );
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -376,7 +425,6 @@ export const Bookings: React.FC = () => {
         </div>
       </div>
 
-
       {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
@@ -407,9 +455,7 @@ export const Bookings: React.FC = () => {
           <div className="text-2xl font-bold text-gray-600 dark:text-gray-400">
             {stats.past}
           </div>
-          <div className="text-sm text-gray-600 dark:text-gray-400">
-            Past
-          </div>
+          <div className="text-sm text-gray-600 dark:text-gray-400">Past</div>
         </div>
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
           <div className="text-2xl font-bold text-green-600 dark:text-green-400">
@@ -443,18 +489,18 @@ export const Bookings: React.FC = () => {
           {/* View Mode Tabs */}
           <div className="flex flex-wrap gap-2">
             {[
-              { key: 'all', label: 'All', count: stats.total },
-              { key: 'active', label: 'Active', count: stats.active },
-              { key: 'upcoming', label: 'Upcoming', count: stats.upcoming },
-              { key: 'past', label: 'Past', count: stats.past }
+              { key: "all", label: "All", count: stats.total },
+              { key: "active", label: "Active", count: stats.active },
+              { key: "upcoming", label: "Upcoming", count: stats.upcoming },
+              { key: "past", label: "Past", count: stats.past },
             ].map(({ key, label, count }) => (
               <button
                 key={key}
                 onClick={() => setViewMode(key as ViewMode)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                   viewMode === key
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                    ? "bg-blue-600 text-white"
+                    : "bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600"
                 }`}
               >
                 {label} ({count})
@@ -470,31 +516,31 @@ export const Bookings: React.FC = () => {
               </span>
               <div className="flex rounded-lg border border-gray-300 dark:border-gray-600">
                 <button
-                  onClick={() => setDisplayMode('list')}
+                  onClick={() => setDisplayMode("list")}
                   className={`px-3 py-1 text-sm rounded-l-lg ${
-                    displayMode === 'list'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    displayMode === "list"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   }`}
                 >
                   <List className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setDisplayMode('grid')}
+                  onClick={() => setDisplayMode("grid")}
                   className={`px-3 py-1 text-sm ${
-                    displayMode === 'grid'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    displayMode === "grid"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   }`}
                 >
                   <Grid3X3 className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setDisplayMode('calendar')}
+                  onClick={() => setDisplayMode("calendar")}
                   className={`px-3 py-1 text-sm rounded-r-lg ${
-                    displayMode === 'calendar'
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    displayMode === "calendar"
+                      ? "bg-blue-600 text-white"
+                      : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700"
                   }`}
                 >
                   <Calendar className="w-4 h-4" />
@@ -503,7 +549,7 @@ export const Bookings: React.FC = () => {
             </div>
 
             {/* Month Navigation (for calendar view) */}
-            {displayMode === 'calendar' && (
+            {displayMode === "calendar" && (
               <div className="flex items-center space-x-2">
                 <button
                   onClick={() => setSelectedMonth(subMonths(selectedMonth, 1))}
@@ -512,7 +558,7 @@ export const Bookings: React.FC = () => {
                   ←
                 </button>
                 <span className="text-sm font-medium text-gray-700 dark:text-gray-300 min-w-0 flex-1 text-center">
-                  {format(selectedMonth, 'MMMM yyyy')}
+                  {format(selectedMonth, "MMMM yyyy")}
                 </span>
                 <button
                   onClick={() => setSelectedMonth(addMonths(selectedMonth, 1))}
@@ -565,7 +611,8 @@ export const Bookings: React.FC = () => {
 
             <div className="text-sm text-gray-600 dark:text-gray-400 flex items-center">
               <Filter className="w-4 h-4 mr-2" />
-              {filteredReservations.length} result{filteredReservations.length !== 1 ? 's' : ''}
+              {filteredReservations.length} result
+              {filteredReservations.length !== 1 ? "s" : ""}
             </div>
           </div>
         </div>
@@ -573,7 +620,7 @@ export const Bookings: React.FC = () => {
 
       {/* Content Area */}
       <div className="space-y-4">
-        {displayMode === 'calendar' ? (
+        {displayMode === "calendar" ? (
           <BookingCalendar
             reservations={filteredReservations}
             onReservationClick={openEditModal}
@@ -586,19 +633,31 @@ export const Bookings: React.FC = () => {
               No bookings found
             </h3>
             <p className="text-gray-600 dark:text-gray-400 mb-4">
-              {searchQuery || statusFilter !== 'all' || selectedSpaceFilter !== 'all' || viewMode !== 'all'
-                ? 'Try adjusting your filters to see more results.'
-                : 'You haven\'t made any bookings yet.'}
+              {searchQuery ||
+              statusFilter !== "all" ||
+              selectedSpaceFilter !== "all" ||
+              viewMode !== "all"
+                ? "Try adjusting your filters to see more results."
+                : "You haven't made any bookings yet."}
             </p>
-            {(!searchQuery && statusFilter === 'all' && selectedSpaceFilter === 'all' && viewMode === 'all') && (
-              <Button onClick={openNewBookingModal}>
-                <Plus className="w-4 h-4 mr-2" />
-                Create Your First Booking
-              </Button>
-            )}
+            {!searchQuery &&
+              statusFilter === "all" &&
+              selectedSpaceFilter === "all" &&
+              viewMode === "all" && (
+                <Button onClick={openNewBookingModal}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Your First Booking
+                </Button>
+              )}
           </div>
         ) : (
-          <div className={displayMode === 'grid' ? 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4' : 'space-y-4'}>
+          <div
+            className={
+              displayMode === "grid"
+                ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
+                : "space-y-4"
+            }
+          >
             {filteredReservations.map((reservation) => (
               <ReservationCard
                 key={reservation.id}
@@ -608,7 +667,7 @@ export const Bookings: React.FC = () => {
                 onCancel={handleCancelReservation}
                 onCheckIn={handleCheckIn}
                 onCheckOut={handleCheckOut}
-                compact={displayMode === 'grid'}
+                compact={displayMode === "grid"}
               />
             ))}
           </div>

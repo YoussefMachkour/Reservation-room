@@ -17,7 +17,7 @@ import { SpacesPage } from "./pages/spaces/Spaces";
 import { Bookings } from "./pages/bookings/Bookings";
 import { SpaceBooking } from "./pages/bookings/SpaceBooking";
 import { CustomerSupport } from "./pages/support/CustomerSupportPage";
-import { ProfilePage } from "./pages/profile/ProfilePage"; // ADD THIS
+import { ProfilePage } from "./pages/profile/ProfilePage";
 
 // Protected Route Component
 interface ProtectedRouteProps {
@@ -29,9 +29,9 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   adminOnly = false,
 }) => {
-  const { user, loading } = useAuth();
+  const { user, isLoading } = useAuth(); // Changed from 'loading' to 'isLoading'
 
-  if (loading) {
+  if (isLoading) {
     return <LoadingSpinner />;
   }
 
@@ -39,8 +39,41 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     return <Navigate to="/login" replace />;
   }
 
+  // Check if user is active
+  if (!user.is_active) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">
+            Account Inactive
+          </h1>
+          <p className="text-gray-600">
+            Your account is not active. Please contact an administrator.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (adminOnly && user.role !== "admin") {
-    return <Navigate to="/dashboard" replace />;
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-red-600 mb-4">
+            Access Denied
+          </h1>
+          <p className="text-gray-600">
+            You need admin privileges to access this page.
+          </p>
+          <button
+            onClick={() => window.history.back()}
+            className="mt-4 bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return <>{children}</>;
@@ -52,9 +85,9 @@ interface PublicRouteProps {
 }
 
 const PublicRoute: React.FC<PublicRouteProps> = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, isLoading } = useAuth(); // Changed from 'loading' to 'isLoading'
 
-  if (loading) {
+  if (isLoading) {
     return <LoadingSpinner />;
   }
 
@@ -113,15 +146,17 @@ export const AppRouter: React.FC = () => {
         {/* Profile */}
         <Route path="profile" element={<ProfilePage />} />
 
-        {/* Admin Routes */}
-        {/* <Route 
-          path="admin" 
+        {/* Admin Routes - Example for future use */}
+        {/* 
+        <Route 
+          path="admin/*" 
           element={
             <ProtectedRoute adminOnly>
-              <AdminDashboardPage />
+              <AdminDashboard />
             </ProtectedRoute>
           } 
-        /> */}
+        /> 
+        */}
       </Route>
 
       {/* Fallback */}
