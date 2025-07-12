@@ -4,111 +4,120 @@ services:
   # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
-    container_name: room_reservation_db
+    container_name: cohub_database
     environment:
       POSTGRES_DB: room_reservation
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: password123
-      POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
-      - room_reservation_network
+      - cohub_network
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U admin -d room_reservation"]
-      interval: 30s
-      timeout: 10s
+      interval: 10s
+      timeout: 5s
       retries: 3
 
   # Redis Cache
   redis:
     image: redis:7-alpine
-    container_name: room_reservation_redis
+    container_name: cohub_cache
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
-      - room_reservation_network
+      - cohub_network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # Go Backend API
   api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: room_reservation_api
+    container_name: cohub_backend
     environment:
-      - ENVIRONMENT=development
+      - ENVIRONMENT=production
       - PORT=8080
       - DATABASE_URL=postgres://admin:password123@postgres:5432/room_reservation?sslmode=disable
       - REDIS_URL=redis://redis:6379
-      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_SECRET=cohub-demo-secret-key-2025
       - LOG_LEVEL=info
-      - SMTP_HOST=mailhog
-      - SMTP_PORT=1025
-      - SMTP_USER=
-      - SMTP_PASSWORD=
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_healthy
     networks:
-      - room_reservation_network
+      - cohub_network
     restart: unless-stopped
     volumes:
       - ./logs:/app/logs
 
-  # Frontend React App (Development)
-  # frontend:
-  #   build:
-  #     context: ./frontend
-  #     dockerfile: Dockerfile
-  #   container_name: room_reservation_frontend
-  #   environment:
-  #     - REACT_APP_API_URL=http://localhost:8080/api/v1
-  #     - CHOKIDAR_USEPOLLING=true
-  #   ports:
-  #     - "3000:3000"
-  #   volumes:
-  #     - ./frontend:/app
-  #     - /app/node_modules
-  #   networks:
-  #     - room_reservation_network
-  #   restart: unless-stopped
-
-  # MailHog for email testing
-  mailhog:
-    image: mailhog/mailhog:latest
-    container_name: room_reservation_mailhog
+  # React Frontend (User App)
+  frontend:
+    build:
+      context: ./webapp-reservation
+      dockerfile: Dockerfile
+    container_name: cohub_frontend
+    environment:
+      - VITE_API_URL=http://localhost:8080/api/v1
     ports:
-      - "1025:1025"  # SMTP port
-      - "8025:8025"  # Web interface
+      - "3000:80"
+    depends_on:
+      - api
     networks:
-      - room_reservation_network
+      - cohub_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 2
 
-  # Adminer for database management
+  # Admin Panel (React TypeScript with shadcn/ui)
+  admin:
+    build:
+      context: ./reservation-backoffice
+      dockerfile: Dockerfile
+    container_name: cohub_admin
+    environment:
+      - VITE_API_URL=http://localhost:8080/api/v1
+      - VITE_APP_TITLE=CoHub Admin Panel
+      - NODE_ENV=production
+    ports:
+      - "3001:80"
+    depends_on:
+      - api
+    networks:
+      - cohub_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.admin.rule=Host(`admin.localhost`)"
+      - "traefik.http.services.admin.loadbalancer.server.port=80"
+
+  # Database Admin Tool (for demo purposes)
   adminer:
     image: adminer:latest
-    container_name: room_reservation_adminer
+    container_name: cohub_database_admin
     ports:
       - "8081:8080"
     environment:
       - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=pepa-linha
     networks:
-      - room_reservation_network
+      - cohub_network
     depends_on:
       - postgres
 
@@ -119,5 +128,6 @@ volumes:
     driver: local
 
 networks:
-  room_reservation_network:
+  cohub_network:
     driver: bridge
+    name: cohub_network
