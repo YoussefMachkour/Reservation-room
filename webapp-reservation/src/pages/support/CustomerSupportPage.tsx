@@ -1,32 +1,24 @@
 // pages/CustomerSupport.tsx
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import {
-  Send,
   Phone,
   Mail,
   Clock,
   MessageCircle,
-  User,
-  Bot,
   Minimize2,
   Maximize2,
-  Star,
   HelpCircle,
   Wifi,
   WifiOff,
   CheckCircle,
-  Settings,
   Headphones,
   AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button/Button";
-import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { ChatInput } from "@/components/chat/ChatInput";
-import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageList } from "@/components/chat/MessageList";
 import { AgentCard } from "@/components/chat/AgentCard";
 import { QuickReplies } from "@/components/chat/QuickReplies";
-import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { Message, SupportAgent, MessageType, ChatUtils } from "@/types/chat";
 import { useTheme } from "@/contexts/ThemeContext";
 
@@ -96,8 +88,6 @@ export const CustomerSupport: React.FC = () => {
   const typingUsers: TypingUser[] = isTyping
     ? [{ id: "agent1", name: "Sarah Williams", type: "admin" }]
     : [];
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Effects
   useEffect(() => {

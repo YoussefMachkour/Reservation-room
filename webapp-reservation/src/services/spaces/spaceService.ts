@@ -1,10 +1,5 @@
 import { apiClient } from "../api/apiClient";
-import type {
-  Space,
-  SpaceType,
-  SpaceStatus,
-  SpaceFilters,
-} from "../../types/space";
+import type { Space, SpaceFilters } from "../../types/space";
 
 // Updated mock data to match backend DTO structure
 const mockSpaces: Space[] = [
@@ -718,7 +713,7 @@ export const isSpaceAvailable = (space: Space): boolean => {
   return space.status === "available";
 };
 
-export const canBookSpace = (space: Space, userRole?: string): boolean => {
+export const canBookSpace = (space: Space): boolean => {
   if (!isSpaceAvailable(space)) return false;
 
   // If space requires approval and user is not admin/manager, they can still book but it will be pending

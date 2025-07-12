@@ -1,7 +1,7 @@
 // components/spaces/SpaceModal.tsx
-import React, { useState } from 'react';
-import { Space } from '../../types/space';
-import { X, MapPin, Users, Clock, Calendar, Wifi, Car, Coffee, Shield, CheckCircle } from 'lucide-react';
+import React, { useState } from "react";
+import { Space } from "../../types/space";
+import { X, MapPin, Users, Clock, Calendar } from "lucide-react";
 
 interface SpaceModalProps {
   space: Space;
@@ -9,33 +9,47 @@ interface SpaceModalProps {
   onBook: () => void;
 }
 
-export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }) => {
+export const SpaceModal: React.FC<SpaceModalProps> = ({
+  space,
+  onClose,
+  onBook,
+}) => {
   const [selectedPhoto, setSelectedPhoto] = useState(0);
 
   const getSpaceTypeDisplay = (type: string) => {
-    return type.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
+    return type
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'available': return 'bg-green-100 text-green-800';
-      case 'maintenance': return 'bg-yellow-100 text-yellow-800';
-      case 'out_of_service': return 'bg-red-100 text-red-800';
-      case 'reserved': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case "available":
+        return "bg-green-100 text-green-800";
+      case "maintenance":
+        return "bg-yellow-100 text-yellow-800";
+      case "out_of_service":
+        return "bg-red-100 text-red-800";
+      case "reserved":
+        return "bg-blue-100 text-blue-800";
+      default:
+        return "bg-gray-100 text-gray-800";
     }
   };
 
-  const getEquipmentIcon = (equipmentName: string) => {
-    const name = equipmentName.toLowerCase();
-    if (name.includes('wifi') || name.includes('internet')) return <Wifi className="w-4 h-4" />;
-    if (name.includes('coffee') || name.includes('kitchen')) return <Coffee className="w-4 h-4" />;
-    if (name.includes('parking') || name.includes('car')) return <Car className="w-4 h-4" />;
-    if (name.includes('security') || name.includes('access')) return <Shield className="w-4 h-4" />;
-    return <CheckCircle className="w-4 h-4" />;
-  };
+  // const getEquipmentIcon = (equipmentName: string) => {
+  //   const name = equipmentName.toLowerCase();
+  //   if (name.includes("wifi") || name.includes("internet"))
+  //     return <Wifi className="w-4 h-4" />;
+  //   if (name.includes("coffee") || name.includes("kitchen"))
+  //     return <Coffee className="w-4 h-4" />;
+  //   if (name.includes("parking") || name.includes("car"))
+  //     return <Car className="w-4 h-4" />;
+  //   if (name.includes("security") || name.includes("access"))
+  //     return <Shield className="w-4 h-4" />;
+  //   return <CheckCircle className="w-4 h-4" />;
+  // };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
@@ -61,9 +75,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
               <div className="space-y-4">
                 {/* Main Photo */}
                 <div className="relative h-64 bg-gray-200 rounded-lg overflow-hidden">
-                  {space.photos.length > 0 ? (
+                  {space.photos!.length > 0 ? (
                     <img
-                      src={space.photos[selectedPhoto]}
+                      src={space.photos![selectedPhoto]}
                       alt={space.name}
                       className="w-full h-full object-cover"
                     />
@@ -73,21 +87,28 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
                     </div>
                   )}
                   <div className="absolute top-4 right-4">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(space.status)}`}>
-                      {space.status.charAt(0).toUpperCase() + space.status.slice(1)}
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(
+                        space.status
+                      )}`}
+                    >
+                      {space.status.charAt(0).toUpperCase() +
+                        space.status.slice(1)}
                     </span>
                   </div>
                 </div>
 
                 {/* Photo Thumbnails */}
-                {space.photos.length > 1 && (
+                {space.photos!.length > 1 && (
                   <div className="flex gap-2 overflow-x-auto">
-                    {space.photos.map((photo, index) => (
+                    {space.photos!.map((photo, index) => (
                       <button
                         key={index}
                         onClick={() => setSelectedPhoto(index)}
                         className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 ${
-                          selectedPhoto === index ? 'border-blue-500' : 'border-gray-200'
+                          selectedPhoto === index
+                            ? "border-blue-500"
+                            : "border-gray-200"
                         }`}
                       >
                         <img
@@ -106,11 +127,16 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
             <div className="space-y-6">
               {/* Basic Info */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Space Details</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  Space Details
+                </h3>
                 <div className="space-y-3">
                   <div className="flex items-center text-gray-600">
                     <MapPin className="w-5 h-5 mr-3" />
-                    <span>{space.building} - Floor {space.floor} - Room {space.room_number}</span>
+                    <span>
+                      {space.building} - Floor {space.floor} - Room{" "}
+                      {space.room_number}
+                    </span>
                   </div>
                   <div className="flex items-center text-gray-600">
                     <Users className="w-5 h-5 mr-3" />
@@ -118,7 +144,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
                   </div>
                   <div className="flex items-center text-gray-600">
                     <Clock className="w-5 h-5 mr-3" />
-                    <span>Max booking: {space.max_booking_duration / 60} hours</span>
+                    <span>
+                      Max booking: {space.max_booking_duration / 60} hours
+                    </span>
                   </div>
                   {space.surface && (
                     <div className="flex items-center text-gray-600">
@@ -131,56 +159,51 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
 
               {/* Pricing */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Pricing</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  Pricing
+                </h3>
                 <div className="bg-gray-50 rounded-lg p-4">
                   <div className="grid grid-cols-3 gap-4 text-center">
                     <div>
                       <p className="text-sm text-gray-600">Per Hour</p>
-                      <p className="text-xl font-bold text-gray-900">${space.price_per_hour}</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        ${space.price_per_hour}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600">Per Day</p>
-                      <p className="text-xl font-bold text-gray-900">${space.price_per_day}</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        ${space.price_per_day}
+                      </p>
                     </div>
                     <div>
                       <p className="text-sm text-gray-600">Per Month</p>
-                      <p className="text-xl font-bold text-gray-900">${space.price_per_month}</p>
+                      <p className="text-xl font-bold text-gray-900">
+                        ${space.price_per_month}
+                      </p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Equipment */}
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Equipment & Amenities</h3>
-                <div className="grid grid-cols-1 gap-3">
-                  {space.equipment.map((equipment, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center">
-                        {getEquipmentIcon(equipment.name)}
-                        <div className="ml-3">
-                          <p className="font-medium text-gray-900">{equipment.name}</p>
-                          {equipment.description && (
-                            <p className="text-sm text-gray-600">{equipment.description}</p>
-                          )}
-                        </div>
-                      </div>
-                      <span className="text-sm font-medium text-gray-600">
-                        Qty: {equipment.quantity}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Booking Rules */}
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Booking Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                  Booking Information
+                </h3>
                 <div className="space-y-2 text-sm text-gray-600">
-                  <p>• Advance booking required: {space.booking_advance_time} minutes</p>
-                  <p>• Maximum duration: {space.max_booking_duration / 60} hours</p>
+                  <p>
+                    • Advance booking required: {space.booking_advance_time}{" "}
+                    minutes
+                  </p>
+                  <p>
+                    • Maximum duration: {space.max_booking_duration / 60} hours
+                  </p>
                   {space.requires_approval && (
-                    <p>• <span className="text-orange-600">Approval required</span></p>
+                    <p>
+                      •{" "}
+                      <span className="text-orange-600">Approval required</span>
+                    </p>
                   )}
                 </div>
               </div>
@@ -189,7 +212,9 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
 
           {/* Description */}
           <div className="mt-8">
-            <h3 className="text-lg font-semibold text-gray-900 mb-3">Description</h3>
+            <h3 className="text-lg font-semibold text-gray-900 mb-3">
+              Description
+            </h3>
             <p className="text-gray-600 leading-relaxed">{space.description}</p>
           </div>
 
@@ -203,7 +228,7 @@ export const SpaceModal: React.FC<SpaceModalProps> = ({ space, onClose, onBook }
             </button>
             <button
               onClick={onBook}
-              disabled={space.status !== 'available'}
+              disabled={space.status !== "available"}
               className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
             >
               Book This Space

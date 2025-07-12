@@ -1,34 +1,54 @@
-import React, { useState, useEffect } from 'react';
-import { useForm } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { Calendar, Clock, Users, FileText, Repeat, AlertCircle } from 'lucide-react';
-import { format, addDays, parse, isAfter, isBefore } from 'date-fns';
-import { Button } from '../../ui/button/Button';
-import { Input } from '../../ui/input/Input';
-import { LoadingSpinner } from '../../ui/LoadingSpinner';
-import { ErrorMessage } from '../../ui/ErrorMessage';
-import { generateTimeSlots, validateBookingTimes, formatDuration } from '../../../utils/bookingHelpers';
-import type { Space } from '../../../types/space';
-import type { BookingFormData, RecurrencePattern, RecurrenceType } from '../../../types/booking';
+import React, { useState, useEffect } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import {
+  Calendar,
+  Clock,
+  Users,
+  FileText,
+  Repeat,
+  AlertCircle,
+} from "lucide-react";
+import { format, parse, isAfter } from "date-fns";
+import { Button } from "../../ui/button/Button";
+import { Input } from "../../ui/input/Input";
+import {
+  generateTimeSlots,
+  validateBookingTimes,
+} from "../../../utils/bookingHelpers";
+import type { Space } from "../../../types/space";
+import type {
+  BookingFormData,
+  RecurrencePattern,
+  RecurrenceType,
+} from "../../../types/booking";
 
 // Create a schema that exactly matches BookingFormData
 const bookingSchema = z.object({
-  title: z.string().min(2, 'Title must be at least 2 characters').max(200, 'Title too long'),
+  title: z
+    .string()
+    .min(2, "Title must be at least 2 characters")
+    .max(200, "Title too long"),
   description: z.string().optional(),
-  start_date: z.string().min(1, 'Start date is required'),
-  start_time: z.string().min(1, 'Start time is required'),
-  end_date: z.string().min(1, 'End date is required'),
-  end_time: z.string().min(1, 'End time is required'),
-  participant_count: z.number().min(1, 'At least 1 participant required').max(1000, 'Too many participants'),
+  start_date: z.string().min(1, "Start date is required"),
+  start_time: z.string().min(1, "Start time is required"),
+  end_date: z.string().min(1, "End date is required"),
+  end_time: z.string().min(1, "End time is required"),
+  participant_count: z
+    .number()
+    .min(1, "At least 1 participant required")
+    .max(1000, "Too many participants"),
   is_recurring: z.boolean(),
-  recurrence_pattern: z.object({
-    type: z.enum(['none', 'daily', 'weekly', 'monthly']),
-    interval: z.number(),
-    days_of_week: z.array(z.number()).optional(),
-    end_date: z.string().optional(),
-    max_occurrences: z.number().optional()
-  }).optional()
+  recurrence_pattern: z
+    .object({
+      type: z.enum(["none", "daily", "weekly", "monthly"]),
+      interval: z.number(),
+      days_of_week: z.array(z.number()).optional(),
+      end_date: z.string().optional(),
+      max_occurrences: z.number().optional(),
+    })
+    .optional(),
 }) satisfies z.ZodType<BookingFormData>;
 
 interface BookingFormProps {
@@ -45,17 +65,20 @@ export const BookingForm: React.FC<BookingFormProps> = ({
   onSubmit,
   onCancel,
   isLoading = false,
-  error,
-  initialData
+  initialData,
 }) => {
-  const [showRecurrence, setShowRecurrence] = useState(initialData?.is_recurring || false);
-  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>({
-    type: 'none',
-    interval: 1,
-    days_of_week: [],
-    end_date: undefined,
-    max_occurrences: undefined
-  });
+  const [showRecurrence, setShowRecurrence] = useState(
+    initialData?.is_recurring || false
+  );
+  const [recurrencePattern, setRecurrencePattern] = useState<RecurrencePattern>(
+    {
+      type: "none",
+      interval: 1,
+      days_of_week: [],
+      end_date: undefined,
+      max_occurrences: undefined,
+    }
+  );
   const [estimatedCost, setEstimatedCost] = useState<number>(0);
 
   const {
@@ -64,20 +87,19 @@ export const BookingForm: React.FC<BookingFormProps> = ({
     watch,
     setValue,
     formState: { errors },
-    clearErrors
   } = useForm<BookingFormData>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
-      title: initialData?.title || '',
-      description: initialData?.description || '',
-      start_date: initialData?.start_date || format(new Date(), 'yyyy-MM-dd'),
-      start_time: initialData?.start_time || '09:00',
-      end_date: initialData?.end_date || format(new Date(), 'yyyy-MM-dd'),
-      end_time: initialData?.end_time || '10:00',
+      title: initialData?.title || "",
+      description: initialData?.description || "",
+      start_date: initialData?.start_date || format(new Date(), "yyyy-MM-dd"),
+      start_time: initialData?.start_time || "09:00",
+      end_date: initialData?.end_date || format(new Date(), "yyyy-MM-dd"),
+      end_time: initialData?.end_time || "10:00",
       participant_count: initialData?.participant_count || 1,
       is_recurring: initialData?.is_recurring || false,
-      recurrence_pattern: initialData?.recurrence_pattern
-    }
+      recurrence_pattern: initialData?.recurrence_pattern,
+    },
   });
 
   const watchedValues = watch();
@@ -93,23 +115,38 @@ export const BookingForm: React.FC<BookingFormProps> = ({
 
   // Calculate estimated cost
   useEffect(() => {
-    if (watchedValues.start_date && watchedValues.start_time && 
-        watchedValues.end_date && watchedValues.end_time) {
-      const startDateTime = new Date(`${watchedValues.start_date}T${watchedValues.start_time}`);
-      const endDateTime = new Date(`${watchedValues.end_date}T${watchedValues.end_time}`);
-      
+    if (
+      watchedValues.start_date &&
+      watchedValues.start_time &&
+      watchedValues.end_date &&
+      watchedValues.end_time
+    ) {
+      const startDateTime = new Date(
+        `${watchedValues.start_date}T${watchedValues.start_time}`
+      );
+      const endDateTime = new Date(
+        `${watchedValues.end_date}T${watchedValues.end_time}`
+      );
+
       if (isAfter(endDateTime, startDateTime)) {
-        const diffInHours = (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60 * 60);
+        const diffInHours =
+          (endDateTime.getTime() - startDateTime.getTime()) / (1000 * 60 * 60);
         const cost = diffInHours * (space.price_per_hour || 0);
         setEstimatedCost(cost);
       }
     }
-  }, [watchedValues.start_date, watchedValues.start_time, watchedValues.end_date, watchedValues.end_time, space.price_per_hour]);
+  }, [
+    watchedValues.start_date,
+    watchedValues.start_time,
+    watchedValues.end_date,
+    watchedValues.end_time,
+    space.price_per_hour,
+  ]);
 
   // Auto-set end date when start date changes
   useEffect(() => {
     if (watchedValues.start_date && !initialData?.end_date) {
-      setValue('end_date', watchedValues.start_date);
+      setValue("end_date", watchedValues.start_date);
     }
   }, [watchedValues.start_date, setValue, initialData?.end_date]);
 
@@ -117,11 +154,11 @@ export const BookingForm: React.FC<BookingFormProps> = ({
     // Validate booking times
     const startDateTime = `${data.start_date}T${data.start_time}`;
     const endDateTime = `${data.end_date}T${data.end_time}`;
-    
+
     const validation = validateBookingTimes(startDateTime, endDateTime, 480); // 8 hours default
     if (!validation.valid) {
       // You might want to show the validation error here
-      console.error('Validation error:', validation.error);
+      console.error("Validation error:", validation.error);
       return;
     }
 
@@ -135,23 +172,23 @@ export const BookingForm: React.FC<BookingFormProps> = ({
 
   const handleRecurrenceToggle = (checked: boolean) => {
     setShowRecurrence(checked);
-    setValue('is_recurring', checked);
+    setValue("is_recurring", checked);
     if (!checked) {
       setRecurrencePattern({
-        type: 'none',
+        type: "none",
         interval: 1,
         days_of_week: [],
         end_date: undefined,
-        max_occurrences: undefined
+        max_occurrences: undefined,
       });
-      setValue('recurrence_pattern', undefined);
+      setValue("recurrence_pattern", undefined);
     }
   };
 
   const updateRecurrencePattern = (updates: Partial<RecurrencePattern>) => {
     const newPattern = { ...recurrencePattern, ...updates };
     setRecurrencePattern(newPattern);
-    setValue('recurrence_pattern', newPattern);
+    setValue("recurrence_pattern", newPattern);
   };
 
   return (
@@ -165,13 +202,16 @@ export const BookingForm: React.FC<BookingFormProps> = ({
       <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6">
         {/* Title */}
         <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label
+            htmlFor="title"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+          >
             <FileText className="inline w-4 h-4 mr-1" />
             Booking Title
           </label>
           <Input
             id="title"
-            {...register('title')}
+            {...register("title")}
             placeholder="e.g., Team Planning Meeting"
             error={errors.title?.message}
           />
@@ -179,12 +219,15 @@ export const BookingForm: React.FC<BookingFormProps> = ({
 
         {/* Description */}
         <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label
+            htmlFor="description"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+          >
             Description (Optional)
           </label>
           <textarea
             id="description"
-            {...register('description')}
+            {...register("description")}
             placeholder="Add any additional details about your booking..."
             rows={3}
             className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
@@ -194,77 +237,96 @@ export const BookingForm: React.FC<BookingFormProps> = ({
         {/* Date and Time */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="start_date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label
+              htmlFor="start_date"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
               <Calendar className="inline w-4 h-4 mr-1" />
               Start Date
             </label>
             <Input
               id="start_date"
               type="date"
-              {...register('start_date')}
-              min={format(new Date(), 'yyyy-MM-dd')}
+              {...register("start_date")}
+              min={format(new Date(), "yyyy-MM-dd")}
               error={errors.start_date?.message}
             />
           </div>
 
           <div>
-            <label htmlFor="start_time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label
+              htmlFor="start_time"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
               <Clock className="inline w-4 h-4 mr-1" />
               Start Time
             </label>
             <select
               id="start_time"
-              {...register('start_time')}
+              {...register("start_time")}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
             >
-              {timeSlots.map(time => (
+              {timeSlots.map((time) => (
                 <option key={time} value={time}>
-                  {format(parse(time, 'HH:mm', new Date()), 'h:mm a')}
+                  {format(parse(time, "HH:mm", new Date()), "h:mm a")}
                 </option>
               ))}
             </select>
             {errors.start_time && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.start_time.message}</p>
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                {errors.start_time.message}
+              </p>
             )}
           </div>
 
           <div>
-            <label htmlFor="end_date" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label
+              htmlFor="end_date"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
               End Date
             </label>
             <Input
               id="end_date"
               type="date"
-              {...register('end_date')}
-              min={watchedValues.start_date || format(new Date(), 'yyyy-MM-dd')}
+              {...register("end_date")}
+              min={watchedValues.start_date || format(new Date(), "yyyy-MM-dd")}
               error={errors.end_date?.message}
             />
           </div>
 
           <div>
-            <label htmlFor="end_time" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            <label
+              htmlFor="end_time"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+            >
               End Time
             </label>
             <select
               id="end_time"
-              {...register('end_time')}
+              {...register("end_time")}
               className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
             >
-              {timeSlots.map(time => (
+              {timeSlots.map((time) => (
                 <option key={time} value={time}>
-                  {format(parse(time, 'HH:mm', new Date()), 'h:mm a')}
+                  {format(parse(time, "HH:mm", new Date()), "h:mm a")}
                 </option>
               ))}
             </select>
             {errors.end_time && (
-              <p className="mt-1 text-sm text-red-600 dark:text-red-400">{errors.end_time.message}</p>
+              <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                {errors.end_time.message}
+              </p>
             )}
           </div>
         </div>
 
         {/* Participant Count */}
         <div>
-          <label htmlFor="participant_count" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          <label
+            htmlFor="participant_count"
+            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+          >
             <Users className="inline w-4 h-4 mr-1" />
             Number of Participants
           </label>
@@ -273,7 +335,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({
             type="number"
             min="1"
             max={space.capacity}
-            {...register('participant_count', { valueAsNumber: true })}
+            {...register("participant_count", { valueAsNumber: true })}
             error={errors.participant_count?.message}
           />
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
@@ -307,7 +369,11 @@ export const BookingForm: React.FC<BookingFormProps> = ({
                   </label>
                   <select
                     value={recurrencePattern.type}
-                    onChange={(e) => updateRecurrencePattern({ type: e.target.value as RecurrenceType })}
+                    onChange={(e) =>
+                      updateRecurrencePattern({
+                        type: e.target.value as RecurrenceType,
+                      })
+                    }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                   >
                     <option value="daily">Daily</option>
@@ -326,13 +392,20 @@ export const BookingForm: React.FC<BookingFormProps> = ({
                       min="1"
                       max="52"
                       value={recurrencePattern.interval}
-                      onChange={(e) => updateRecurrencePattern({ interval: parseInt(e.target.value) })}
+                      onChange={(e) =>
+                        updateRecurrencePattern({
+                          interval: parseInt(e.target.value),
+                        })
+                      }
                       className="w-20 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                     />
                     <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {recurrencePattern.type === 'daily' && (recurrencePattern.interval === 1 ? 'day' : 'days')}
-                      {recurrencePattern.type === 'weekly' && (recurrencePattern.interval === 1 ? 'week' : 'weeks')}
-                      {recurrencePattern.type === 'monthly' && (recurrencePattern.interval === 1 ? 'month' : 'months')}
+                      {recurrencePattern.type === "daily" &&
+                        (recurrencePattern.interval === 1 ? "day" : "days")}
+                      {recurrencePattern.type === "weekly" &&
+                        (recurrencePattern.interval === 1 ? "week" : "weeks")}
+                      {recurrencePattern.type === "monthly" &&
+                        (recurrencePattern.interval === 1 ? "month" : "months")}
                     </span>
                   </div>
                 </div>
@@ -345,8 +418,19 @@ export const BookingForm: React.FC<BookingFormProps> = ({
                   </label>
                   <input
                     type="date"
-                    value={recurrencePattern.end_date ? format(new Date(recurrencePattern.end_date), 'yyyy-MM-dd') : ''}
-                    onChange={(e) => updateRecurrencePattern({ end_date: e.target.value ? e.target.value : undefined })}
+                    value={
+                      recurrencePattern.end_date
+                        ? format(
+                            new Date(recurrencePattern.end_date),
+                            "yyyy-MM-dd"
+                          )
+                        : ""
+                    }
+                    onChange={(e) =>
+                      updateRecurrencePattern({
+                        end_date: e.target.value ? e.target.value : undefined,
+                      })
+                    }
                     min={watchedValues.start_date}
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                   />
@@ -360,8 +444,14 @@ export const BookingForm: React.FC<BookingFormProps> = ({
                     type="number"
                     min="1"
                     max="365"
-                    value={recurrencePattern.max_occurrences || ''}
-                    onChange={(e) => updateRecurrencePattern({ max_occurrences: e.target.value ? parseInt(e.target.value) : undefined })}
+                    value={recurrencePattern.max_occurrences || ""}
+                    onChange={(e) =>
+                      updateRecurrencePattern({
+                        max_occurrences: e.target.value
+                          ? parseInt(e.target.value)
+                          : undefined,
+                      })
+                    }
                     placeholder="No limit"
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-white"
                   />
@@ -387,7 +477,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({
         )}
 
         {/* Space Requirements Notice */}
-        {space.status !== 'available' && (
+        {space.status !== "available" && (
           <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4">
             <div className="flex items-start space-x-2">
               <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
@@ -415,7 +505,7 @@ export const BookingForm: React.FC<BookingFormProps> = ({
           </Button>
           <Button
             type="submit"
-            disabled={isLoading || space.status !== 'available'}
+            disabled={isLoading || space.status !== "available"}
             loading={isLoading}
           >
             Book Space

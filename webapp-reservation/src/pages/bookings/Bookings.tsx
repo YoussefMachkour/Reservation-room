@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from "react";
 import {
   Calendar,
-  Clock,
   Filter,
   Plus,
   Search,
@@ -20,18 +19,10 @@ import {
 import { Button } from "../../components/ui/button/Button";
 import { Input } from "../../components/ui/input/Input";
 import { LoadingSpinner } from "../../components/ui/LoadingSpinner";
-import { ErrorMessage } from "../../components/ui/ErrorMessage";
 import { ReservationCard } from "../../components/booking/card/BookingCard";
-import { BookingModal } from "../../components/booking/BookingModal";
 import { BookingCalendar } from "../../components/booking/calendar/BookingCalendar";
-import { useAuth } from "../../contexts/AuthContext";
 import { reservationService, spaceService } from "../../services/api";
-import { formatReservationStatus } from "../../utils/bookingHelpers";
-import type {
-  Reservation,
-  ReservationStatus,
-  BookingFormData,
-} from "../../types/booking";
+import type { Reservation, ReservationStatus } from "../../types/booking";
 import type { Space } from "../../types/space";
 
 type ViewMode = "all" | "upcoming" | "past" | "active";
@@ -39,14 +30,12 @@ type StatusFilter = "all" | ReservationStatus;
 type DisplayMode = "list" | "grid" | "calendar";
 
 export const Bookings: React.FC = () => {
-  const { user } = useAuth();
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [filteredReservations, setFilteredReservations] = useState<
     Reservation[]
   >([]);
   const [spaces, setSpaces] = useState<Space[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Display and filter states
   const [displayMode, setDisplayMode] = useState<DisplayMode>("list");
@@ -57,12 +46,6 @@ export const Bookings: React.FC = () => {
   const [selectedSpaceFilter, setSelectedSpaceFilter] = useState<string>("all");
 
   // Modal states
-  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
-  const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
-  const [editingReservation, setEditingReservation] =
-    useState<Reservation | null>(null);
-  const [bookingLoading, setBookingLoading] = useState(false);
-  const [bookingError, setBookingError] = useState<string | null>(null);
 
   // Stats
   const [stats, setStats] = useState({
@@ -98,7 +81,6 @@ export const Bookings: React.FC = () => {
   const loadReservations = async () => {
     try {
       setIsLoading(true);
-      setError(null);
       const response = await reservationService.getUserReservations();
 
       if (response.success && response.data) {
@@ -107,7 +89,6 @@ export const Bookings: React.FC = () => {
         throw new Error(response.message || "Failed to load reservations");
       }
     } catch (err: any) {
-      setError(err.message || "Failed to load reservations");
       console.error("Error loading reservations:", err);
     } finally {
       setIsLoading(false);
@@ -207,70 +188,70 @@ export const Bookings: React.FC = () => {
     setFilteredReservations(filtered);
   };
 
-  const handleCreateBooking = async (data: BookingFormData) => {
-    if (!selectedSpace) return;
+  // const handleCreateBooking = async (data: BookingFormData) => {
+  //   if (!selectedSpace) return;
 
-    try {
-      setBookingLoading(true);
-      setBookingError(null);
+  //   try {
+  //     setBookingLoading(true);
+  //     setBookingError(null);
 
-      // Convert to the format expected by reservationService.createReservation
-      const reservationData = {
-        spaceId: selectedSpace.id,
-        startDate: data.start_date,
-        endDate: data.end_date,
-        startTime: data.start_time,
-        endTime: data.end_time,
-        participantCount: data.participant_count,
-        title: data.title,
-        notes: data.description,
-      };
+  //     // Convert to the format expected by reservationService.createReservation
+  //     const reservationData = {
+  //       spaceId: selectedSpace.id,
+  //       startDate: data.start_date,
+  //       endDate: data.end_date,
+  //       startTime: data.start_time,
+  //       endTime: data.end_time,
+  //       participantCount: data.participant_count,
+  //       title: data.title,
+  //       notes: data.description,
+  //     };
 
-      await reservationService.createReservation(reservationData);
-      setIsBookingModalOpen(false);
-      setSelectedSpace(null);
-      await loadReservations();
+  //     await reservationService.createReservation(reservationData);
+  //     setIsBookingModalOpen(false);
+  //     setSelectedSpace(null);
+  //     await loadReservations();
 
-      // Show success message (you can add a toast notification here)
-      console.log("Booking created successfully");
-    } catch (err: any) {
-      setBookingError(err.message || "Failed to create booking");
-    } finally {
-      setBookingLoading(false);
-    }
-  };
+  //     // Show success message (you can add a toast notification here)
+  //     console.log("Booking created successfully");
+  //   } catch (err: any) {
+  //     setBookingError(err.message || "Failed to create booking");
+  //   } finally {
+  //     setBookingLoading(false);
+  //   }
+  // };
 
-  const handleEditReservation = async (data: BookingFormData) => {
-    if (!editingReservation) return;
+  // const handleEditReservation = async (data: BookingFormData) => {
+  //   if (!editingReservation) return;
 
-    try {
-      setBookingLoading(true);
-      setBookingError(null);
+  //   try {
+  //     setBookingLoading(true);
+  //     setBookingError(null);
 
-      // Convert to the format expected by reservationService.updateReservation
-      const updateData = {
-        startDate: data.start_date,
-        endDate: data.end_date,
-        startTime: data.start_time,
-        endTime: data.end_time,
-        notes: data.description,
-      };
+  //     // Convert to the format expected by reservationService.updateReservation
+  //     const updateData = {
+  //       startDate: data.start_date,
+  //       endDate: data.end_date,
+  //       startTime: data.start_time,
+  //       endTime: data.end_time,
+  //       notes: data.description,
+  //     };
 
-      await reservationService.updateReservation(
-        editingReservation.id,
-        updateData
-      );
-      setIsBookingModalOpen(false);
-      setEditingReservation(null);
-      await loadReservations();
+  //     await reservationService.updateReservation(
+  //       editingReservation.id,
+  //       updateData
+  //     );
+  //     setIsBookingModalOpen(false);
+  //     setEditingReservation(null);
+  //     await loadReservations();
 
-      console.log("Booking updated successfully");
-    } catch (err: any) {
-      setBookingError(err.message || "Failed to update booking");
-    } finally {
-      setBookingLoading(false);
-    }
-  };
+  //     console.log("Booking updated successfully");
+  //   } catch (err: any) {
+  //     setBookingError(err.message || "Failed to update booking");
+  //   } finally {
+  //     setBookingLoading(false);
+  //   }
+  // };
 
   const handleCancelReservation = async (reservation: Reservation) => {
     const confirmed = window.confirm(
@@ -289,9 +270,7 @@ export const Bookings: React.FC = () => {
       );
       await loadReservations();
       console.log("Reservation cancelled successfully");
-    } catch (err: any) {
-      setError(err.message || "Failed to cancel reservation");
-    }
+    } catch (err: any) {}
   };
 
   const handleCheckIn = async (reservation: Reservation) => {
@@ -299,9 +278,7 @@ export const Bookings: React.FC = () => {
       await reservationService.checkIn(reservation.id);
       await loadReservations();
       console.log("Checked in successfully");
-    } catch (err: any) {
-      setError(err.message || "Failed to check in");
-    }
+    } catch (err: any) {}
   };
 
   const handleCheckOut = async (reservation: Reservation) => {
@@ -309,21 +286,14 @@ export const Bookings: React.FC = () => {
       await reservationService.checkOut(reservation.id);
       await loadReservations();
       console.log("Checked out successfully");
-    } catch (err: any) {
-      setError(err.message || "Failed to check out");
-    }
+    } catch (err: any) {}
   };
 
   const openNewBookingModal = () => {
     // For now, we'll use the first available space
     // In a real app, you might want to show a space selector first
     if (spaces.length > 0) {
-      setSelectedSpace(spaces[0]);
-      setEditingReservation(null);
-      setIsBookingModalOpen(true);
-      setBookingError(null);
     } else {
-      setError("No spaces available for booking");
     }
   };
 
@@ -331,20 +301,16 @@ export const Bookings: React.FC = () => {
     if (reservation.space) {
       // TODO: Fix space type conflicts before enabling
       // setSelectedSpace(reservation.space);
-      setEditingReservation(reservation);
-      setIsBookingModalOpen(true);
-      setBookingError(null);
     } else {
-      setError("Space information not available for this reservation");
     }
   };
 
-  const closeModal = () => {
-    setIsBookingModalOpen(false);
-    setSelectedSpace(null);
-    setEditingReservation(null);
-    setBookingError(null);
-  };
+  // const closeModal = () => {
+  //   setIsBookingModalOpen(false);
+  //   setSelectedSpace(null);
+  //   setEditingReservation(null);
+  //   setBookingError(null);
+  // };
 
   const handleRefresh = () => {
     loadReservations();

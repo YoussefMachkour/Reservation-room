@@ -5,13 +5,18 @@ import React, {
   useEffect,
   ReactNode,
 } from "react";
-import { authService, User } from "../services/auth/authService";
+import {
+  authService,
+  User,
+  RegisterRequest,
+} from "../services/auth/authService";
 
 interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
+  register: (userData: RegisterRequest) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -29,52 +34,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
     const initializeAuth = async () => {
       try {
         const savedToken = localStorage.getItem("cohub-token");
-        const savedUser = localStorage.getItem("cohub-user");
 
         if (savedToken) {
           setToken(savedToken);
 
-          // If we have saved user data, use it immediately for better UX
-          if (savedUser) {
-            try {
-              const parsedUser = JSON.parse(savedUser);
-              setUser(parsedUser);
-            } catch (error) {
-              console.error("Failed to parse saved user data:", error);
-            }
-          }
-
-          // Verify token is still valid by fetching fresh user data
+          // Verify token is still valid by fetching user data
           try {
             const userData = await authService.getProfile(savedToken);
             setUser(userData);
-            // Update localStorage with fresh user data
-            localStorage.setItem("cohub-user", JSON.stringify(userData));
           } catch (error) {
+            // Token is invalid, clear it
             console.error("Token validation failed:", error);
-
-            // Only clear auth if it's definitely an auth error (401/403)
-            // Don't clear on network errors, server errors, etc.
-            if (error instanceof Error) {
-              const isAuthError =
-                error.message.includes("Unauthorized") ||
-                error.message.includes("401") ||
-                error.message.includes("403");
-
-              if (isAuthError) {
-                console.log("Auth error detected, clearing stored credentials");
-                localStorage.removeItem("cohub-token");
-                localStorage.removeItem("cohub-user");
-                setToken(null);
-                setUser(null);
-              } else {
-                console.log(
-                  "Non-auth error, keeping stored credentials:",
-                  error.message
-                );
-                // Keep the saved user data for offline functionality
-              }
-            }
+            localStorage.removeItem("cohub-token");
+            localStorage.removeItem("cohub-user");
           }
         }
       } catch (error) {
@@ -90,6 +62,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
   const login = async (email: string, password: string): Promise<void> => {
     try {
       const response = await authService.login({ email, password });
+
+      setUser(response.user);
+      setToken(response.token);
+
+      // Store in localStorage
+      localStorage.setItem("cohub-token", response.token);
+      localStorage.setItem("cohub-user", JSON.stringify(response.user));
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const register = async (userData: RegisterRequest): Promise<void> => {
+    try {
+      const response = await authService.register(userData);
 
       setUser(response.user);
       setToken(response.token);
@@ -125,6 +112,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({
         token,
         isLoading,
         login,
+        register,
         logout,
       }}
     >

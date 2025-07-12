@@ -239,19 +239,13 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                     isDark ? "bg-gray-700" : "bg-gray-200"
                   }`}
                 >
-                  {user?.avatar ? (
-                    <img
-                      src={user.avatar}
-                      alt={user.name}
-                      className="w-8 h-8 rounded-full"
-                    />
-                  ) : (
-                    <User
-                      className={`w-4 h-4 ${
-                        isDark ? "text-gray-400" : "text-gray-600"
-                      }`}
-                    />
-                  )}
+                  (
+                  <User
+                    className={`w-4 h-4 ${
+                      isDark ? "text-gray-400" : "text-gray-600"
+                    }`}
+                  />
+                  )
                 </div>
                 <div className="hidden md:block text-left">
                   <p
@@ -259,7 +253,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                       isDark ? "text-white" : "text-gray-900"
                     }`}
                   >
-                    {user?.name || "User"}
+                    {user?.first_name + " " + user?.last_name}
                   </p>
                   <p
                     className={`text-xs ${
@@ -299,7 +293,7 @@ export const Header: React.FC<HeaderProps> = ({ onMenuToggle }) => {
                           isDark ? "text-white" : "text-gray-900"
                         }`}
                       >
-                        {user?.name}
+                        {user?.first_name + " " + user?.last_name}
                       </p>
                       <p
                         className={`text-sm ${

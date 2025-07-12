@@ -1,11 +1,11 @@
 // components/chat/ChatInput.tsx
-import React, { useRef, useState } from 'react';
-import { Send, Paperclip, Smile } from 'lucide-react';
-import { Button } from '../ui/button/Button';
-import { Input } from '../ui/input/Input';
-import { FileUpload } from './FileUpload';
-import { MessageType, DEFAULT_FILE_CONFIG } from '@/types/chat';
-import { useTheme } from '@/contexts/ThemeContext';
+import React, { useState } from "react";
+import { Send, Paperclip, Smile } from "lucide-react";
+import { Button } from "../ui/button/Button";
+import { Input } from "../ui/input/Input";
+import { FileUpload } from "./FileUpload";
+import { MessageType, DEFAULT_FILE_CONFIG } from "@/types/chat";
+import { useTheme } from "@/contexts/ThemeContext";
 
 interface ChatInputMessageData {
   content: string;
@@ -30,29 +30,29 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   showFileUpload = true,
   showEmoji = true,
   maxLength = 2000,
-  className = ''
+  className = "",
 }) => {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const { isDark } = useTheme();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if ((!message.trim() && files.length === 0) || disabled) return;
 
     onSendMessage({
       content: message.trim(),
-      type: 'text',
-      attachments: files.length > 0 ? files : undefined
+      type: "text",
+      attachments: files.length > 0 ? files : undefined,
     });
 
-    setMessage('');
+    setMessage("");
     setFiles([]);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSubmit(e as any);
     }
@@ -63,7 +63,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   const handleRemoveFile = (index: number) => {
-    setFiles(prev => prev.filter((_, i) => i !== index));
+    setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   const isDisabled = disabled || (!message.trim() && files.length === 0);
@@ -77,10 +77,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         config={DEFAULT_FILE_CONFIG}
         showPreview={true}
       />
-      
-      <form onSubmit={handleSubmit} className={`flex items-end gap-3 p-4 border-t ${
-        isDark ? 'border-gray-700 bg-gray-800' : 'border-gray-200 bg-white'
-      }`}>
+
+      <form
+        onSubmit={handleSubmit}
+        className={`flex items-end gap-3 p-4 border-t ${
+          isDark ? "border-gray-700 bg-gray-800" : "border-gray-200 bg-white"
+        }`}
+      >
         {showFileUpload && (
           <FileUpload
             files={[]}
@@ -92,10 +95,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             <button
               type="button"
               className={`p-2 rounded-lg transition-colors ${
-                isDark 
-                  ? 'hover:bg-gray-700 text-gray-400 hover:text-gray-300' 
-                  : 'hover:bg-gray-100 text-gray-600 hover:text-gray-700'
-              } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                isDark
+                  ? "hover:bg-gray-700 text-gray-400 hover:text-gray-300"
+                  : "hover:bg-gray-100 text-gray-600 hover:text-gray-700"
+              } ${
+                disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"
+              }`}
               disabled={disabled}
               title="Attach file"
             >
@@ -103,7 +108,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </button>
           </FileUpload>
         )}
-        
+
         <div className="flex-1 relative">
           <Input
             value={message}
@@ -116,8 +121,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             className="pr-12"
           />
         </div>
-        
-        <Button 
+
+        <Button
           type="submit"
           disabled={isDisabled}
           icon={Send}
@@ -127,12 +132,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           Send
         </Button>
       </form>
-      
+
       {maxLength && (
         <div className="px-4 pb-2">
-          <p className={`text-xs text-right ${
-            isDark ? 'text-gray-400' : 'text-gray-500'
-          }`}>
+          <p
+            className={`text-xs text-right ${
+              isDark ? "text-gray-400" : "text-gray-500"
+            }`}
+          >
             {message.length}/{maxLength}
           </p>
         </div>

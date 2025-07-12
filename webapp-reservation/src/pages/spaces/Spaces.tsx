@@ -15,7 +15,6 @@ import {
   X,
 } from "lucide-react";
 import {
-  Space,
   SpaceFilters,
   ComponentSpace,
   mapApiSpaceToComponentSpace,

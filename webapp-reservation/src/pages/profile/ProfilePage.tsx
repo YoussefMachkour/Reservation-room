@@ -3,9 +3,6 @@ import React, { useState } from "react";
 import {
   User,
   Mail,
-  Phone,
-  MapPin,
-  Building,
   Edit3,
   Save,
   X,
@@ -15,9 +12,8 @@ import {
   Lock,
   Eye,
   EyeOff,
-  Settings,
 } from "lucide-react";
-import { User as UserType } from "../../types";
+import { User as UserType } from "../../types/auth";
 import { Button } from "../../components/ui/button/Button";
 import { Input } from "../../components/ui/input/Input";
 import { ErrorMessage } from "../../components/ui/ErrorMessage";
@@ -53,12 +49,20 @@ interface UserPreferences {
 
 // Helper functions for your User type
 const getUserInitials = (user: UserType): string => {
-  return user.name
-    .split(" ")
-    .map((n) => n.charAt(0))
-    .join("")
-    .toUpperCase()
-    .slice(0, 2);
+  return (
+    user.first_name
+      .split(" ")
+      .map((n) => n.charAt(0))
+      .join("")
+      .toUpperCase()
+      .slice(0, 2) +
+    user.last_name
+      .split(" ")
+      .map((n) => n.charAt(0))
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
+  );
 };
 
 const isAdmin = (user: UserType): boolean => {
@@ -66,7 +70,7 @@ const isAdmin = (user: UserType): boolean => {
 };
 
 export const ProfilePage: React.FC = () => {
-  const { user, loading: authLoading, error: authError } = useAuth();
+  const { user } = useAuth();
   const { isDark } = useTheme();
   const { toasts, showError, showSuccess, removeToast } = useToast();
 
@@ -92,9 +96,8 @@ export const ProfilePage: React.FC = () => {
   });
 
   const [editedProfile, setEditedProfile] = useState<UpdateProfileRequest>({
-    name: user?.name || "",
+    name: user?.first_name || "",
     email: user?.email || "",
-    avatar: user?.avatar || "",
   });
 
   const [passwordData, setPasswordData] = useState<ChangePasswordRequest>({
@@ -135,9 +138,8 @@ export const ProfilePage: React.FC = () => {
 
   const handleCancel = () => {
     setEditedProfile({
-      name: user?.name || "",
+      name: user?.first_name || "",
       email: user?.email || "",
-      avatar: user?.avatar || "",
     });
     setIsEditing(false);
     setError("");
@@ -246,33 +248,20 @@ export const ProfilePage: React.FC = () => {
     { id: "security", label: "Security", icon: Lock },
   ];
 
-  if (authLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner />
-      </div>
-    );
-  }
-
   // Show error state if there's an auth error
-  if (authError && !user) {
+  if (!user) {
     return (
       <div className="flex flex-col items-center justify-center h-64 space-y-4">
         <div className="text-center">
-          <h2 className={`text-xl font-semibold ${isDark ? "text-white" : "text-gray-900"}`}>
+          <h2
+            className={`text-xl font-semibold ${
+              isDark ? "text-white" : "text-gray-900"
+            }`}
+          >
             Unable to Load Profile
           </h2>
-          <p className={`mt-2 ${isDark ? "text-gray-300" : "text-gray-600"}`}>
-            {authError.includes('internal_server_error') 
-              ? 'Server is experiencing issues. Please try again later.'
-              : authError
-            }
-          </p>
         </div>
-        <Button 
-          onClick={() => window.location.reload()}
-          variant="secondary"
-        >
+        <Button onClick={() => window.location.reload()} variant="secondary">
           Retry
         </Button>
       </div>
@@ -291,7 +280,7 @@ export const ProfilePage: React.FC = () => {
     <div className="w-full space-y-6">
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemove={removeToast} />
-      
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -349,21 +338,13 @@ export const ProfilePage: React.FC = () => {
                       isDark ? "bg-gray-700" : "bg-gray-100"
                     }`}
                   >
-                    {user.avatar ? (
-                      <img
-                        src={user.avatar}
-                        alt={user.name}
-                        className="w-20 h-20 rounded-full object-cover"
-                      />
-                    ) : (
-                      <span
-                        className={`text-2xl font-bold ${
-                          isDark ? "text-gray-300" : "text-gray-600"
-                        }`}
-                      >
-                        {getUserInitials(user)}
-                      </span>
-                    )}
+                    <span
+                      className={`text-2xl font-bold ${
+                        isDark ? "text-gray-300" : "text-gray-600"
+                      }`}
+                    >
+                      {getUserInitials(user)}
+                    </span>
                   </div>
                   {isAdmin(user) && (
                     <div className="absolute -top-1 -right-1 w-6 h-6 bg-purple-600 rounded-full flex items-center justify-center">
@@ -376,7 +357,7 @@ export const ProfilePage: React.FC = () => {
                     isDark ? "text-white" : "text-gray-900"
                   }`}
                 >
-                  {user.name}
+                  {user.first_name}
                 </h3>
                 <p
                   className={`text-sm ${
@@ -398,7 +379,7 @@ export const ProfilePage: React.FC = () => {
                   }`}
                 >
                   Member since{" "}
-                  {new Date(user.createdAt).toLocaleDateString("en-US", {
+                  {new Date(user.created_at).toLocaleDateString("en-US", {
                     month: "long",
                     year: "numeric",
                   })}
@@ -507,7 +488,7 @@ export const ProfilePage: React.FC = () => {
                     <Input
                       label="Full Name"
                       type="text"
-                      value={isEditing ? editedProfile.name : user.name}
+                      value={isEditing ? editedProfile.name : user.first_name}
                       onChange={(e) =>
                         isEditing &&
                         setEditedProfile((prev) => ({
@@ -558,7 +539,7 @@ export const ProfilePage: React.FC = () => {
                           isDark ? "text-gray-200" : "text-gray-900"
                         }`}
                       >
-                        {new Date(user.createdAt).toLocaleDateString("en-US", {
+                        {new Date(user.created_at).toLocaleDateString("en-US", {
                           year: "numeric",
                           month: "long",
                           day: "numeric",
@@ -592,7 +573,7 @@ export const ProfilePage: React.FC = () => {
                         <span
                           className={isDark ? "text-gray-400" : "text-gray-500"}
                         >
-                          {new Date(user.createdAt).toLocaleDateString()}
+                          {new Date(user.created_at).toLocaleDateString()}
                         </span>
                       </div>
                       <div>
@@ -606,7 +587,7 @@ export const ProfilePage: React.FC = () => {
                         <span
                           className={isDark ? "text-gray-400" : "text-gray-500"}
                         >
-                          {new Date(user.updatedAt).toLocaleDateString()}
+                          {new Date(user.updated_at).toLocaleDateString()}
                         </span>
                       </div>
                     </div>

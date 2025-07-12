@@ -6,6 +6,16 @@ export interface LoginRequest {
   password: string;
 }
 
+export interface RegisterRequest {
+  first_name: string;
+  last_name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  department?: string;
+  position?: string;
+}
+
 export interface AuthResponse {
   user: {
     id: string;
@@ -82,6 +92,28 @@ class AuthService {
     }
   }
 
+  // Register user
+  async register(userData: RegisterRequest): Promise<AuthResponse> {
+    try {
+      const response = await fetch(`${API_URL}/auth/register`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(userData),
+      });
+
+      return await this.handleResponse(response);
+    } catch (error) {
+      if (error instanceof TypeError && error.message.includes("fetch")) {
+        throw new Error(
+          "Unable to connect to server. Please check your connection."
+        );
+      }
+      throw error;
+    }
+  }
+
   // Get current user profile
   async getProfile(token: string): Promise<User> {
     try {
@@ -131,36 +163,6 @@ class AuthService {
     } catch (error) {
       // Don't throw error for logout - we'll clear local storage anyway
       console.error("Logout API error:", error);
-    }
-  }
-
-  // Register user (if you need it later)
-  async register(userData: {
-    first_name: string;
-    last_name: string;
-    email: string;
-    password: string;
-    phone?: string;
-    department?: string;
-    position?: string;
-  }): Promise<AuthResponse> {
-    try {
-      const response = await fetch(`${API_URL}/auth/register`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(userData),
-      });
-
-      return await this.handleResponse(response);
-    } catch (error) {
-      if (error instanceof TypeError && error.message.includes("fetch")) {
-        throw new Error(
-          "Unable to connect to server. Please check your connection."
-        );
-      }
-      throw error;
     }
   }
 
